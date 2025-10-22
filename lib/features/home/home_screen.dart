@@ -1,82 +1,80 @@
 import 'package:flutter/material.dart';
-import 'package:lumi_app/widgets/lumi_char.dart';
+import 'crear_sesion_screen.dart';
+import 'start_screen.dart';
+import '../settings/settings_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final sessions = ['Sesión 1', 'Sesión 2', 'Sesión 3', 'Sesión 4'];
+
     return Scaffold(
       backgroundColor: const Color(0xFFD9CBBE),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const SizedBox(height: 32),
-              const Center(child: LumiChar(size: 200)),
-              const SizedBox(height: 48),
-              _MenuButton(
-                icon: Icons.play_arrow,
-                label: 'Iniciar sesión',
-                onPressed: () => Navigator.pushNamed(context, '/start'),
-              ),
-              const SizedBox(height: 16),
-              _MenuButton(
-                icon: Icons.add,
-                label: 'Crear sesión',
-                onPressed: () => Navigator.pushNamed(context, '/crear'),
-              ),
-              const SizedBox(height: 16),
-              _MenuButton(
-                icon: Icons.bar_chart,
-                label: 'Estadísticas',
-                onPressed: () => Navigator.pushNamed(context, '/stats'),
-              ),
-              const SizedBox(height: 16),
-              _MenuButton(
-                icon: Icons.settings,
-                label: 'Ajustes',
-                onPressed: () => Navigator.pushNamed(context, '/settings'),
-              ),
-            ],
+      appBar: AppBar(
+        backgroundColor: const Color(0xFFB49D87),
+        title: const Text('Hola Nay\nMe llamo Lumi'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.menu),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const SettingsScreen()),
+              );
+            },
           ),
-        ),
+        ],
       ),
-    );
-  }
-}
-
-class _MenuButton extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback onPressed;
-
-  const _MenuButton({
-    required this.icon,
-    required this.label,
-    required this.onPressed,
-    super.key,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return ElevatedButton(
-      onPressed: onPressed,
-      style: ElevatedButton.styleFrom(
-        padding: const EdgeInsets.symmetric(vertical: 16),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black87,
-        elevation: 2,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-      ),
-      child: Row(
+      body: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(icon),
-          const SizedBox(width: 8),
-          Text(label, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ElevatedButton.icon(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const CrearNuevaSesionScreen()),
+              );
+            },
+            icon: const Icon(Icons.add_circle_outline),
+            label: const Text('Nueva Sesión de Estudio'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF2C4459),
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(25),
+              ),
+            ),
+          ),
+          const SizedBox(height: 30),
+          for (var i = 0; i < sessions.length; i++) ...[
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 5),
+              child: ElevatedButton(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => StartScreen(session: {'titulo': sessions[i]}),
+                    ),
+                  );
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF80A6B3),
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(200, 45),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                ),
+                child: Text(sessions[i]),
+              ),
+            ),
+          ],
+          const SizedBox(height: 30),
+          Image.asset('assets/images/lumi.jpg', height: 80),
         ],
       ),
     );

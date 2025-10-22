@@ -43,7 +43,7 @@ class _LumiCharState extends State<LumiChar> {
       height: widget.size,
       child: _loading
           ? const Center(child: CircularProgressIndicator())
-          : Image.asset('assets/images/lumi_char.png', fit: BoxFit.contain),
+          : Image.asset('assets/images/lumi_char.jpg', fit: BoxFit.contain),
     );
   }
 }
