@@ -13,7 +13,7 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   void initState() {
     super.initState();
-    Timer(const Duration(seconds: 2), () {
+    Timer(const Duration(seconds: 2, milliseconds: 550), () {
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (context) => const HomeScreen()),
@@ -25,11 +25,12 @@ class _SplashScreenState extends State<SplashScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      body: Center(
+      body: Container(
+        width: double.infinity, // Ocupar todo el ancho
+        height: double.infinity, // Ocupar todo el alto
         child: Image.asset(
           'assets/images/lumi.jpg',
-          width: 200,
-          height: 200,
+          fit: BoxFit.cover, // Ajustar la imagen para cubrir todo el espacio
         ),
       ),
     );
