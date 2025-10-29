@@ -174,7 +174,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     children: [
                       const Icon(Icons.auto_awesome, color: _primary, size: 18),
                       const SizedBox(width: 8),
-                      Flexible(child: Text(_quote, style: const TextStyle(fontWeight: FontWeight.w600))),
+                      Flexible(child: Text(_quote, style: const TextStyle(fontWeight: FontWeight.w600),overflow: TextOverflow.ellipsis,maxLines: 1,)),
                     ],
                   ),
                 ),
@@ -220,7 +220,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       borderRadius: BorderRadius.circular(20),
       onTap: onTap,
       child: Ink(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 14),  // Cambiado de 12 a 8 para más espacio
         decoration: BoxDecoration(
           color: const Color(0xFFF6EFE9),
           border: Border.all(color: Colors.black26),
@@ -230,8 +230,14 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(icon, color: _primary),
-            const SizedBox(width: 8),
-            Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
+            const SizedBox(width: 6),  // Reducido de 8 a 6 para ahorrar espacio
+            Flexible(
+              child: Text(
+                label,
+                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),  // Agregado fontSize: 14 para texto más pequeño
+                overflow: TextOverflow.ellipsis,  // Mantén esto por si acaso en dispositivos extremos
+              ),
+            ),
           ],
         ),
       ),

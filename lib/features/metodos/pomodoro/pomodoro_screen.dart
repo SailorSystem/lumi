@@ -246,57 +246,64 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
                 ),
                 const SizedBox(height: 24),
                 // Controles
+                // Controles
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     // Iniciar / Pausar
-                    SizedBox(
-                      height: 52,
-                      child: ElevatedButton.icon(
-                        onPressed: _isRunning ? _pause : _start,
-                        icon: Icon(_isRunning ? Icons.pause : Icons.play_arrow, size: 22),
-                        label: Text(_isRunning ? 'Pausar' : 'Iniciar',
-                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: _primary,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 26),
-                          shape: const StadiumBorder(),
-                          elevation: 2,
+                    Flexible(  // Agregado para ajuste automático
+                      child: SizedBox(
+                        height: 52,
+                        child: ElevatedButton.icon(
+                          onPressed: _isRunning ? _pause : _start,
+                          icon: Icon(_isRunning ? Icons.pause : Icons.play_arrow, size: 22),
+                          label: Text(_isRunning ? 'Pausar' : 'Iniciar',
+                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _primary,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 20),  // Cambiado de 26 a 20
+                            shape: const StadiumBorder(),
+                            elevation: 2,
+                          ),
                         ),
                       ),
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: 8),  // Cambiado de 12 a 8 para menos separación
                     // Reiniciar
-                    SizedBox(
-                      height: 52,
-                      child: OutlinedButton.icon(
-                        onPressed: _resetCurrentPhase,
-                        icon: const Icon(Icons.refresh, size: 20),
-                        label: const Text('Reiniciar',
-                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: _primary,
-                          side: BorderSide(color: _primary.withOpacity(0.45)),
-                          padding: const EdgeInsets.symmetric(horizontal: 20),
-                          shape: const StadiumBorder(),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    // Saltar descanso
-                    if (_phase != _Phase.focus)
-                      SizedBox(
+                    Flexible(  // Agregado
+                      child: SizedBox(
                         height: 52,
                         child: OutlinedButton.icon(
-                          onPressed: _nextPhase,
-                          icon: const Icon(Icons.skip_next, size: 20),
-                          label: const Text('Saltar', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                          onPressed: _resetCurrentPhase,
+                          icon: const Icon(Icons.refresh, size: 20),
+                          label: const Text('Reiniciar',
+                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
                           style: OutlinedButton.styleFrom(
-                            foregroundColor: _bar,
-                            side: BorderSide(color: _bar.withOpacity(0.6)),
-                            padding: const EdgeInsets.symmetric(horizontal: 18),
+                            foregroundColor: _primary,
+                            side: BorderSide(color: _primary.withOpacity(0.45)),
+                            padding: const EdgeInsets.symmetric(horizontal: 16),  // Cambiado de 20 a 16
                             shape: const StadiumBorder(),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),  // Cambiado de 12 a 8
+                    // Saltar descanso
+                    if (_phase != _Phase.focus)
+                      Flexible(  // Agregado
+                        child: SizedBox(
+                          height: 52,
+                          child: OutlinedButton.icon(
+                            onPressed: _nextPhase,
+                            icon: const Icon(Icons.skip_next, size: 20),
+                            label: const Text('Saltar', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: _bar,
+                              side: BorderSide(color: _bar.withOpacity(0.6)),
+                              padding: const EdgeInsets.symmetric(horizontal: 14),  // Cambiado de 18 a 14
+                              shape: const StadiumBorder(),
+                            ),
                           ),
                         ),
                       ),
@@ -333,11 +340,11 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
             Expanded(
               child: _phaseSwitchButton(_Phase.focus, 'Foco', Icons.school),
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: 6),  // Cambiado de 10 a 6 para menos separación
             Expanded(
               child: _phaseSwitchButton(_Phase.shortBreak, 'Descanso corto', Icons.free_breakfast),
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: 6),  // Cambiado de 10 a 6
             Expanded(
               child: _phaseSwitchButton(_Phase.longBreak, 'Descanso largo', Icons.nightlight_round),
             ),
@@ -359,12 +366,19 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
           _setPhase(p);
         },
         icon: Icon(icon, size: 18, color: fg),
-        label: Text(text, style: TextStyle(color: fg, fontWeight: FontWeight.w600)),
+        label: Flexible(  // Agregado para que el texto se ajuste
+          child: Text(
+            text,
+            style: TextStyle(color: fg, fontWeight: FontWeight.w600, fontSize: 14),  // Agregado fontSize: 14
+            overflow: TextOverflow.ellipsis,  // Agregado para cortar si es necesario
+          ),
+        ),
         style: TextButton.styleFrom(
           backgroundColor: bg,
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),  // Agregado padding reducido (horizontal de ~16 a 8)
           shape: const StadiumBorder(),
         ),
       ),
     );
-  }
+}
 }
