@@ -3,13 +3,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
-
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  // Palette
+  // Paleta
   static const _bg = Color(0xFFD9CBBE);
   static const _bar = Color(0xFFB49D87);
   static const _primary = Color(0xFF2C4459);
@@ -18,6 +17,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _isDarkMode = false;
   bool _notifications = true;
   bool _sound = true;
+
+  bool _changedForHome = false; // para notificar al Home que refresque
 
   @override
   void initState() {
@@ -40,6 +41,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await prefs.setString('user_name', newName);
     setState(() {
       _userName = newName.isEmpty ? 'Usuario' : newName;
+      _changedForHome = true;
     });
   }
 
@@ -50,172 +52,182 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: _bg,
-      appBar: AppBar(
-        backgroundColor: _bar,
-        title: const Text('Ajustes'),
-        centerTitle: true,
-        elevation: 0,
-        foregroundColor: _primary,
-      ),
-      body: ListView(
-        padding: const EdgeInsets.symmetric(vertical: 16),
-        children: [
-          const SizedBox(height: 8),
-          // User Profile Section
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0),
-            child: Card(
-              color: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              elevation: 2,
-              child: ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: _primary,
-                  child: Text(
-                    _userName.isNotEmpty ? _userName[0].toUpperCase() : 'U',
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+    return WillPopScope(
+      onWillPop: () async {
+        Navigator.pop(context, _changedForHome);
+        return false;
+      },
+      child: Scaffold(
+        backgroundColor: _bg,
+        appBar: AppBar(
+          backgroundColor: _bar,
+          title: const Text('Ajustes'),
+          centerTitle: true,
+          elevation: 0,
+          foregroundColor: _primary,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => Navigator.pop(context, _changedForHome),
+          ),
+        ),
+        body: ListView(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          children: [
+            const SizedBox(height: 8),
+
+            // Perfil
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: Card(
+                color: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                elevation: 2,
+                child: ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: _primary,
+                    child: Text(
+                      _userName.isNotEmpty ? _userName[0].toUpperCase() : 'U',
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                    ),
                   ),
-                ),
-                title: Text(
-                  _userName,
-                  style: TextStyle(color: _primary, fontWeight: FontWeight.w700),
-                ),
-                trailing: TextButton(
-                  style: TextButton.styleFrom(
-                    foregroundColor: _bar,
-                    textStyle: const TextStyle(fontWeight: FontWeight.w600),
+                  title: Text(
+                    _userName,
+                    style: const TextStyle(color: _primary, fontWeight: FontWeight.w700),
                   ),
-                  child: const Text('Editar...'),
-                  onPressed: () async {
-                    final result = await showDialog<String>(
-                      context: context,
-                      builder: (context) => _NameEditDialog(initialName: _userName, primary: _primary, bar: _bar),
-                    );
-                    if (result != null) {
-                      await _updateName(result);
-                    }
-                  },
+                  trailing: TextButton(
+                    style: TextButton.styleFrom(
+                      foregroundColor: _bar,
+                      textStyle: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    child: const Text('Editar...'),
+                    onPressed: () async {
+                      final result = await showDialog<String>(
+                        context: context,
+                        builder: (context) => _NameEditDialog(
+                          initialName: _userName,
+                          primary: _primary,
+                          bar: _bar,
+                        ),
+                      );
+                      if (result != null) await _updateName(result);
+                    },
+                  ),
                 ),
               ),
             ),
-          ),
-          const SizedBox(height: 12),
+            const SizedBox(height: 12),
 
-          // Preferences Card
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0),
-            child: Card(
-              color: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              elevation: 2,
+            // Preferencias
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: Card(
+                color: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                elevation: 2,
+                child: Column(
+                  children: [
+                    // Modo oscuro: avisar y revertir
+                    SwitchListTile(
+                      secondary: const Icon(Icons.dark_mode, color: _primary),
+                      title: const Text('Modo Oscuro', style: TextStyle(color: _primary, fontWeight: FontWeight.w600)),
+                      value: _isDarkMode,
+                      activeColor: _primary,
+                      onChanged: (value) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Modo oscuro aún no está disponible')),
+                        );
+                        setState(() => _isDarkMode = false);
+                        _updateBool('dark_mode', false);
+                      },
+                    ),
+                    const Divider(height: 1),
+                    SwitchListTile(
+                      secondary: const Icon(Icons.notifications, color: _primary),
+                      title: const Text('Notificaciones', style: TextStyle(color: _primary, fontWeight: FontWeight.w600)),
+                      value: _notifications,
+                      activeColor: _primary,
+                      onChanged: (value) {
+                        setState(() => _notifications = value);
+                        _updateBool('notifications', value);
+                      },
+                    ),
+                    const Divider(height: 1),
+                    SwitchListTile(
+                      secondary: const Icon(Icons.volume_up, color: _primary),
+                      title: const Text('Sonido', style: TextStyle(color: _primary, fontWeight: FontWeight.w600)),
+                      value: _sound,
+                      activeColor: _primary,
+                      onChanged: (value) {
+                        setState(() => _sound = value);
+                        _updateBool('sound', value);
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            // Acciones
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
               child: Column(
                 children: [
-                  SwitchListTile(
-                    secondary: Icon(Icons.dark_mode, color: _primary),
-                    title: Text('Modo Oscuro', style: TextStyle(color: _primary, fontWeight: FontWeight.w600)),
-                    value: _isDarkMode,
-                    activeColor: _primary,
-                    onChanged: (value) {
-                      setState(() {
-                        _isDarkMode = value;
-                      });
-                      _updateBool('dark_mode', value);
+                  ElevatedButton(
+                    onPressed: () {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Opciones guardadas')),
+                      );
                     },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _primary,
+                      foregroundColor: Colors.white,
+                      minimumSize: const Size.fromHeight(48),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    child: const Text('Guardar cambios'),
                   ),
-                  const Divider(height: 1),
-                  SwitchListTile(
-                    secondary: Icon(Icons.notifications, color: _primary),
-                    title: Text('Notificaciones', style: TextStyle(color: _primary, fontWeight: FontWeight.w600)),
-                    value: _notifications,
-                    activeColor: _primary,
-                    onChanged: (value) {
-                      setState(() {
-                        _notifications = value;
-                      });
-                      _updateBool('notifications', value);
+                  const SizedBox(height: 12),
+                  OutlinedButton(
+                    onPressed: () {
+                      showDialog(
+                        context: context,
+                        builder: (context) => AlertDialog(
+                          title: const Text('Restablecer ajustes'),
+                          content: const Text('¿Deseas restablecer ajustes a su valor por defecto?'),
+                          actions: [
+                            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+                            TextButton(
+                              onPressed: () async {
+                                final prefs = await SharedPreferences.getInstance();
+                                await prefs.remove('user_name');
+                                await prefs.remove('notifications');
+                                await prefs.remove('sound');
+                                await prefs.remove('dark_mode');
+                                await _loadSettings();
+                                _changedForHome = true;
+                                if (mounted) Navigator.pop(context);
+                              },
+                              child: const Text('Restablecer'),
+                            ),
+                          ],
+                        ),
+                      );
                     },
-                  ),
-                  const Divider(height: 1),
-                  SwitchListTile(
-                    secondary: Icon(Icons.volume_up, color: _primary),
-                    title: Text('Sonido', style: TextStyle(color: _primary, fontWeight: FontWeight.w600)),
-                    value: _sound,
-                    activeColor: _primary,
-                    onChanged: (value) {
-                      setState(() {
-                        _sound = value;
-                      });
-                      _updateBool('sound', value);
-                    },
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: _primary,
+                      side: const BorderSide(color: _bar),
+                      minimumSize: const Size.fromHeight(48),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    child: const Text('Restablecer ajustes'),
                   ),
                 ],
               ),
             ),
-          ),
-          const SizedBox(height: 24),
-
-          // Destructive / Other actions
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0),
-            child: Column(
-              children: [
-                ElevatedButton(
-                  onPressed: () {
-                    // placeholder action
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Opciones guardadas')),
-                    );
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _primary,
-                    foregroundColor: Colors.white,
-                    minimumSize: const Size.fromHeight(48),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  ),
-                  child: const Text('Guardar cambios'),
-                ),
-                const SizedBox(height: 12),
-                OutlinedButton(
-                  onPressed: () {
-                    // reset sample
-                    showDialog(
-                      context: context,
-                      builder: (context) => AlertDialog(
-                        title: const Text('Restablecer ajustes'),
-                        content: const Text('¿Deseas restablecer ajustes a su valor por defecto?'),
-                        actions: [
-                          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
-                          TextButton(
-                            onPressed: () async {
-                              final prefs = await SharedPreferences.getInstance();
-                              await prefs.remove('user_name');
-                              await prefs.remove('notifications');
-                              await prefs.remove('sound');
-                              await prefs.remove('dark_mode');
-                              await _loadSettings();
-                              Navigator.pop(context);
-                            },
-                            child: const Text('Restablecer'),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: _primary,
-                    side: BorderSide(color: _bar),
-                    minimumSize: const Size.fromHeight(48),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  ),
-                  child: const Text('Restablecer ajustes'),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 24),
-        ],
+            const SizedBox(height: 24),
+          ],
+        ),
       ),
     );
   }
@@ -225,7 +237,6 @@ class _NameEditDialog extends StatefulWidget {
   final String initialName;
   final Color primary;
   final Color bar;
-
   const _NameEditDialog({
     required this.initialName,
     required this.primary,
