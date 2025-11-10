@@ -38,6 +38,8 @@ dependencies:
   timezone: ^0.9.4
   cupertino_icons: ^1.0.8
   audioplayers: ^5.1.0  # For custom sounds if needed
+  supabase_flutter: ^2.5.0
+
 
 dev_dependencies:
   flutter_test:
