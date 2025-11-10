@@ -133,8 +133,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
           // ------- Lumi flotante inferior izquierda -------
           Positioned(
-            left: 16,
-            bottom: 16 + MediaQuery.of(context).viewPadding.bottom,
+            left: 50,
+            bottom: 320 + MediaQuery.of(context).viewPadding.bottom,
             child: GestureDetector(
               onTap: _onLumiTap,
               child: AnimatedBuilder(
@@ -189,7 +189,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
       child: Container(
-        height: 180,
+        height: 220,
         decoration: BoxDecoration(
           gradient: const LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [_bar, Color(0xFFCBB6A4)]),
           borderRadius: BorderRadius.circular(28),

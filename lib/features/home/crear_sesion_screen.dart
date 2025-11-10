@@ -19,12 +19,12 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
   final _formKey = GlobalKey<FormState>();
   final _titleController = TextEditingController();
 
-  Map<String, dynamic>? _temaSel;
+  Map<String, dynamic>? _materiaSel; // Renombrado de _temaSel
   String _selectedMetodo = 'Pomodoro';
   DateTime _selectedDate = DateTime.now();
   TimeOfDay _selectedTime = TimeOfDay.now();
   Duration _dur = const Duration(hours: 0, minutes: 0, seconds: 0);
-  List<Map<String, dynamic>> _temas = [];
+  List<Map<String, dynamic>> _materias = []; // Renombrado de _temas
   static const List<Color> _palette = [
     Colors.blue, Colors.red, Colors.green, Colors.amber,
     Colors.purple, Colors.orange, Colors.teal, Colors.pink,
@@ -34,7 +34,7 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
   @override
   void initState() {
     super.initState();
-    _loadTemas();
+    _loadMaterias(); // Renombrado de _loadTemas
   }
 
   @override
@@ -43,35 +43,74 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
     super.dispose();
   }
 
-  Future<void> _loadTemas() async {
-    final prefs = await SharedPreferences.getInstance();
-    final temasJson = prefs.getStringList('temas') ?? [];
-    setState(() {
-      _temas = temasJson.map((e) => Map<String, dynamic>.from(json.decode(e))).toList();
-      if (_temaSel != null) {
-        final m = _temas.where((t) => t['id'] == _temaSel!['id']);
-        if (m.isNotEmpty) _temaSel = m.first;
-      }
-    });
+  // --- LÓGICA DE MATERIAS ACTUALIZADA ---
+
+  List<Map<String, dynamic>> _getDefaultMaterias() {
+    // Esta es tu lista inicial
+    return [
+      {
+        'id': 'default_math',
+        'nombre': 'Matemática',
+        'color': Colors.blue.value,
+      },
+      {
+        'id': 'default_physics',
+        'nombre': 'Física',
+        'color': Colors.red.value,
+      },
+      {
+        'id': 'default_biology',
+        'nombre': 'Biología',
+        'color': Colors.green.value,
+      },
+    ];
   }
 
-  Future<void> _saveTemas() async {
+  Future<void> _loadMaterias() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList('temas', _temas.map((e) => json.encode(e)).toList());
+    // Buscamos 'materias' en lugar de 'temas'
+    final materiasJson = prefs.getStringList('materias') ?? [];
+
+    if (materiasJson.isEmpty) {
+      // Si no hay materias guardadas, cargamos las de por defecto
+      setState(() {
+        _materias = _getDefaultMaterias();
+      });
+      // Y las guardamos para la próxima vez
+      await _saveMaterias();
+    } else {
+      // Si ya hay materias guardadas, simplemente las cargamos
+      setState(() {
+        _materias = materiasJson.map((e) => Map<String, dynamic>.from(json.decode(e))).toList();
+        if (_materiaSel != null) {
+          final m = _materias.where((t) => t['id'] == _materiaSel!['id']);
+          if (m.isNotEmpty) _materiaSel = m.first;
+        }
+      });
+    }
   }
 
-  Future<void> _addTema(Map<String, dynamic> tema) async {
-    _temas.add(tema);
-    await _saveTemas();
-    setState(() => _temaSel = tema);
+  Future<void> _saveMaterias() async {
+    final prefs = await SharedPreferences.getInstance();
+    // Guardamos en 'materias'
+    await prefs.setStringList('materias', _materias.map((e) => json.encode(e)).toList());
   }
+
+  Future<void> _addMateria(Map<String, dynamic> materia) async {
+    _materias.add(materia);
+    await _saveMaterias();
+    setState(() => _materiaSel = materia);
+  }
+
+  // --- FIN DE LÓGICA DE MATERIAS ---
 
   Future<void> _saveSession() async {
     if (!_formKey.currentState!.validate()) return;
     final session = {
       'titulo': _titleController.text,
-      'tema': _temaSel == null ? null : {
-        'id': _temaSel!['id'], 'nombre': _temaSel!['nombre'], 'color': _temaSel!['color']
+      // Guardamos la sesión con la key 'materia'
+      'materia': _materiaSel == null ? null : {
+        'id': _materiaSel!['id'], 'nombre': _materiaSel!['nombre'], 'color': _materiaSel!['color']
       },
       'metodo': _selectedMetodo,
       'fecha': DateTime(
@@ -88,7 +127,7 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
     if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const HomeScreen()),
-      (_) => false,
+          (_) => false,
     );
   }
 
@@ -130,41 +169,45 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
     );
   }
 
-  Widget _temaButton() {
-    final isSelected = _temaSel != null;
-    final color = isSelected ? Color(_temaSel!['color'] as int) : Colors.black26;
-    final label = isSelected ? _temaSel!['nombre'] as String : 'Elegir tema';
+  // Widget renombrado de _temaButton
+  Widget _materiaButton() {
+    final isSelected = _materiaSel != null;
+    final color = isSelected ? Color(_materiaSel!['color'] as int) : Colors.black26;
+    // Texto cambiado a "Elegir materia"
+    final label = isSelected ? _materiaSel!['nombre'] as String : 'Elegir materia';
     return InkWell(
       borderRadius: BorderRadius.circular(16),
       onTap: () async {
         final picked = await showModalBottomSheet<Map<String, dynamic>>(
           context: context,
           backgroundColor: const Color(0xFFF6EFE9),
+          // LÍNEA CORREGIDA (1 de 4)
           shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
           builder: (ctx) {
             return SafeArea(
               child: Padding(
                 padding: const EdgeInsets.all(16),
-                child: _temas.isEmpty
-                    ? const Text('Aún no hay temas. Crea uno con +.')
+                child: _materias.isEmpty
+                // Texto cambiado a "materias"
+                    ? const Text('Aún no hay materias. Crea una con +.')
                     : ListView.separated(
-                        itemCount: _temas.length,
-                        separatorBuilder: (_, __) => const Divider(height: 1),
-                        itemBuilder: (_, i) {
-                          final t = _temas[i];
-                          return ListTile(
-                            leading: CircleAvatar(backgroundColor: Color(t['color'] as int)),
-                            title: Text(t['nombre'] as String),
-                            onTap: () => Navigator.pop(ctx, t),
-                          );
-                        },
-                      ),
+                  itemCount: _materias.length,
+                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  itemBuilder: (_, i) {
+                    final t = _materias[i];
+                    return ListTile(
+                      leading: CircleAvatar(backgroundColor: Color(t['color'] as int)),
+                      title: Text(t['nombre'] as String),
+                      onTap: () => Navigator.pop(ctx, t),
+                    );
+                  },
+                ),
               ),
             );
           },
         );
-        if (picked != null) setState(() => _temaSel = picked);
+        if (picked != null) setState(() => _materiaSel = picked);
       },
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
@@ -186,15 +229,17 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
     );
   }
 
-  Future<void> _openTemaSheet() async {
+  // Renombrado de _openTemaSheet
+  Future<void> _openMateriaSheet() async {
     final nameCtrl = TextEditingController();
     Color picked = _palette.first;
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: const Color(0xFFF6EFE9),
+      // LÍNEA CORREGIDA (2 de 4)
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (ctx) {
         return StatefulBuilder(builder: (ctx, setS) {
           final bottom = MediaQuery.of(ctx).viewInsets.bottom;
@@ -203,11 +248,13 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
             child: Column(mainAxisSize: MainAxisSize.min, children: [
               Container(height: 4, width: 44, decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(2))),
               const SizedBox(height: 12),
-              const Text('Nuevo Tema', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 18)),
+              // Texto cambiado
+              const Text('Nueva Materia', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 18)),
               const SizedBox(height: 12),
               TextField(
                 controller: nameCtrl,
-                decoration: const InputDecoration(labelText: 'Nombre del tema', border: OutlineInputBorder()),
+                // Texto cambiado
+                decoration: const InputDecoration(labelText: 'Nombre de la materia', border: OutlineInputBorder()),
               ),
               const SizedBox(height: 12),
               Wrap(
@@ -249,13 +296,14 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
                     onPressed: () {
                       final name = nameCtrl.text.trim();
                       if (name.isEmpty) return;
-                      final tema = {
+                      // Variable renombrada
+                      final materia = {
                         'id': DateTime.now().microsecondsSinceEpoch.toString(),
                         'nombre': name,
                         'color': picked.value,
                       };
                       Navigator.pop(ctx);
-                      _addTema(tema);
+                      _addMateria(materia); // Función renombrada
                     },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: primary,
@@ -285,8 +333,9 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
     await showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFFF6EFE9),
+      // LÍNEA CORREGIDA (3 de 4)
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (_) {
         return SafeArea(
           child: Padding(
@@ -405,13 +454,15 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
               children: [
                 Expanded(
                   child: FormField<Map<String, dynamic>>(
-                    validator: (_) => _temaSel == null ? 'Por favor selecciona un tema' : null,
+                    // Validación y variable actualizadas
+                    validator: (_) => _materiaSel == null ? 'Por favor selecciona una materia' : null,
                     builder: (state) => Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('Tema', style: TextStyle(fontSize: 12, color: Colors.black87)),
+                        // Texto cambiado
+                        const Text('Materia', style: TextStyle(fontSize: 12, color: Colors.black87)),
                         const SizedBox(height: 6),
-                        _temaButton(),
+                        _materiaButton(), // Función renombrada
                         if (state.hasError)
                           Padding(
                             padding: const EdgeInsets.only(top: 6),
@@ -425,9 +476,9 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
                 SizedBox(
                   height: 48, width: 48,
                   child: FloatingActionButton.small(
-                    heroTag: 'addTemaFab',
+                    heroTag: 'addMateriaFab', // HeroTag cambiado
                     backgroundColor: primary,
-                    onPressed: _openTemaSheet,
+                    onPressed: _openMateriaSheet, // Función renombrada
                     child: const Icon(Icons.add, color: Colors.white),
                   ),
                 ),
@@ -442,8 +493,9 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
                 final v = await showModalBottomSheet<String>(
                   context: context,
                   backgroundColor: const Color(0xFFF6EFE9),
+                  // LÍNEA CORREGIDA (4 de 4)
                   shape: const RoundedRectangleBorder(
-                    borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+                      borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
                   builder: (_) => SafeArea(
                     child: Column(mainAxisSize: MainAxisSize.min, children: [
                       ListTile(
@@ -451,6 +503,7 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
                         title: const Text('Pomodoro'),
                         onTap: () => Navigator.pop(context, 'Pomodoro'),
                       ),
+                      // Aquí puedes agregar más métodos si quieres
                     ]),
                   ),
                 );
@@ -469,7 +522,7 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
                       final d = await showDatePicker(
                         context: context,
                         initialDate: _selectedDate,
-                        firstDate: DateTime.now(),
+                        firstDate: DateTime.now().add(const Duration(days: -30)), // Permitir fechas pasadas por si acaso
                         lastDate: DateTime.now().add(const Duration(days: 365)),
                       );
                       if (d != null) setState(() => _selectedDate = d);
