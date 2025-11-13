@@ -48,15 +48,15 @@ class _LumiCharState extends State<LumiChar> {
 
     _overlayEntry = OverlayEntry(
       builder: (context) => Positioned(
-        left: tapPosition.dx + widget.size,
-        top: tapPosition.dy - widget.size,
+        left: 55 + widget.size,
+        top: 280 - widget.size,
         child: Material(
           color: Colors.transparent,
           child: Container(
             width: 200,
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: Colors.transparent,
               borderRadius: BorderRadius.circular(12),
               boxShadow: [
                 BoxShadow(
@@ -84,7 +84,7 @@ class _LumiCharState extends State<LumiChar> {
                   child: const Icon(
                     Icons.close,
                     size: 20,
-                    color: Colors.grey,
+                    color: Colors.tealAccent,
                   ),
                 ),
               ],
