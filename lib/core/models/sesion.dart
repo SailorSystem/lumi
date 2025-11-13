@@ -1,0 +1,49 @@
+/// Representa una sesión de estudio del usuario.
+/// Corresponde a la tabla `sesiones`.
+class Sesion {
+  final int? idSesion;
+  final int idUsuario;
+  final int? idMetodo;
+  final int? idTema;
+  final String nombreSesion;
+  final DateTime fecha;
+  final bool esRapida;
+  final int? duracionTotal;
+
+  Sesion({
+    this.idSesion,
+    required this.idUsuario,
+    this.idMetodo,
+    this.idTema,
+    required this.nombreSesion,
+    required this.fecha,
+    this.esRapida = false,
+    this.duracionTotal,
+  });
+
+  factory Sesion.fromMap(Map<String, dynamic> map) {
+    return Sesion(
+      idSesion: map['id_sesion'],
+      idUsuario: map['id_usuario'],
+      idMetodo: map['id_metodo'],
+      idTema: map['id_tema'],
+      nombreSesion: map['nombre_sesion'],
+      fecha: DateTime.parse(map['fecha']),
+      esRapida: map['es_rapida'] ?? false,
+      duracionTotal: map['duracion_total'],
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id_sesion': idSesion,
+      'id_usuario': idUsuario,
+      'id_metodo': idMetodo,
+      'id_tema': idTema,
+      'nombre_sesion': nombreSesion,
+      'fecha': fecha.toIso8601String(),
+      'es_rapida': esRapida,
+      'duracion_total': duracionTotal,
+    };
+  }
+}
