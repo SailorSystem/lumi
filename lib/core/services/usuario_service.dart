@@ -1,29 +1,53 @@
 import 'package:lumi_app/core/models/usuario.dart';
 import 'package:lumi_app/core/services/supabase_service.dart';
 
-/// Servicio para la tabla `usuarios`
 class UsuarioService {
-  static const table = 'usuarios';
+  static final _client = SupabaseService.client;
 
-  static Future<Usuario?> crearUsuario(Usuario usuario) async {
-    final response = await SupabaseService.insert(table, usuario.toMap());
-    if (response.isNotEmpty) {
-      return Usuario.fromMap(response.first);
+  /// Obtener usuario por ID
+  static Future<Usuario?> getUsuario(int idUsuario) async {
+    final response = await _client
+        .from('usuarios')
+        .select()
+        .eq('id_usuario', idUsuario)
+        .maybeSingle();
+
+    if (response == null) return null;
+    return Usuario.fromMap(response);
+  }
+
+  /// Crear usuario
+  static Future<Usuario?> crearUsuario(String nombre) async {
+    final response = await _client
+        .from('usuarios')
+        .insert({'nombre': nombre})
+        .select()
+        .maybeSingle();
+
+    if (response == null) return null;
+    return Usuario.fromMap(response);
+  }
+
+  /// Actualizar estado de ánimo (0, 1, 2)
+  static Future<bool> actualizarEstadoAnimo(int idUsuario, int nuevoEstado) async {
+    if (nuevoEstado < 0 || nuevoEstado > 2) {
+      throw Exception("El estado de ánimo debe ser 0, 1 o 2");
     }
-    return null;
+
+    final response = await _client
+        .from('usuarios')
+        .update({'estado_animo': nuevoEstado})
+        .eq('id_usuario', idUsuario);
+
+    return response.error == null;
   }
 
-  static Future<List<Usuario>> obtenerUsuarios() async {
-    final data = await SupabaseService.getAll(table);
-    return data.map((e) => Usuario.fromMap(e)).toList();
-  }
+  /// Obtener todos los usuarios
+  static Future<List<Usuario>> getTodos() async {
+    final response = await _client.from('usuarios').select();
 
-  static Future<Usuario?> obtenerPorId(int id) async {
-    final data = await SupabaseService.getById(table, 'id_usuario', id);
-    return data != null ? Usuario.fromMap(data) : null;
-  }
-
-  static Future<void> eliminarUsuario(int id) async {
-    await SupabaseService.delete(table, 'id_usuario', id);
+    return (response as List)
+        .map((e) => Usuario.fromMap(e))
+        .toList();
   }
 }

@@ -1,3 +1,4 @@
+// lib/features/home/home_screen.dart
 import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:async';
@@ -9,6 +10,7 @@ import 'sesion_rapida.dart';
 import '../settings/settings_screen.dart';
 import '../stats/stats_screen.dart';
 import '../../widgets/lumi_char.dart';
+import '../../features/home/firstre_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -39,9 +41,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   @override
   void initState() {
     super.initState();
+    _checkFirstTime();
     _loadCompletedSessions();
     _pulse = AnimationController(vsync: this, duration: const Duration(seconds: 2))..repeat(reverse: true);
   }
+
 
   @override
   void dispose() {
@@ -278,5 +282,20 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         ],
       ),
     );
+  }
+
+  Future<void> _checkFirstTime() async {
+  final prefs = await SharedPreferences.getInstance();
+  final userName = prefs.getString("user_name");
+
+  if (userName == null || userName.trim().isEmpty) {
+    // Usuario nuevo → enviar a pantalla de registro
+    Future.microtask(() {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const FirstRegisterScreen()),
+      );
+    });
+    }
   }
 }

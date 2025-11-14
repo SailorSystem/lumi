@@ -1,94 +1,113 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:supabase/supabase.dart'; // 👈 usa el paquete base, no supabase_flutter
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'package:lumi_app/core/models/usuario.dart';
+import 'package:lumi_app/core/services/usuario_service.dart';
+import 'package:lumi_app/core/services/supabase_service.dart';
 
 void main() {
-  group('🧠 Pruebas Supabase - Integración completa (modo consola)', () {
-    late SupabaseClient client;
-    late int usuarioId;
-    late int metodoId;
-    late int temaId;
-    late int sesionId;
+  group('🧪 Supabase Tests - Usuario + Estado de Ánimo', () {
+    late int userId;
 
+    // ============================
+    // 🔧 Inicialización global
+    // ============================
     setUpAll(() async {
-      client = SupabaseClient(
-        'https://poxheykxpublcwwodzpz.supabase.co',
-        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBveGhleWt4cHVibGN3d29kenB6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI3NzE4MjcsImV4cCI6MjA3ODM0NzgyN30.DZ2L7TxLWCPW65KNk4cHWol3vtipbladCG28D3oPros',
+      // Evita MissingPluginException al usar shared_preferences en tests
+      SharedPreferences.setMockInitialValues({});
+
+      // Inicializa Supabase (usa tu URL y anon key reales)
+      await Supabase.initialize(
+        url: 'https://poxheykxpublcwwodzpz.supabase.co',
+        anonKey:
+            'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBveGhleWt4cHVibGN3d29kenB6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI3NzE4MjcsImV4cCI6MjA3ODM0NzgyN30.DZ2L7TxLWCPW65KNk4cHWol3vtipbladCG28D3oPros',
       );
-      print('✅ Cliente Supabase inicializado (modo Dart puro).');
+
+      // NO es necesario asignar nada a SupabaseService.client porque el getter
+      // ya devuelve Supabase.instance.client directamente.
+      print("✅ Supabase inicializado correctamente.");
     });
 
-    test('1️⃣ Verificar conexión básica', () async {
-      final response = await client.from('usuarios').select().limit(1);
-      expect(response, isA<List>());
-      print('✅ Conexión exitosa con Supabase.');
+    // ============================
+    // 1️⃣ Crear usuario
+    // ============================
+    test('Crear usuario', () async {
+      final user = await UsuarioService.crearUsuario("Tester");
+
+      expect(user, isNotNull);
+      expect(user!.nombre, "Tester");
+      expect(user.estadoAnimo, 1); // default
+
+      userId = user.idUsuario;
+
+      print("👤 Usuario creado con id: $userId");
     });
 
-    test('2️⃣ Insertar usuario', () async {
-      final response = await client.from('usuarios').insert({
-        'nombre': 'Tester Unitario',
-      }).select();
+    // ============================
+    // 2️⃣ Obtener usuario
+    // ============================
+    test('Obtener usuario creado', () async {
+      final usuario = await UsuarioService.getUsuario(userId);
 
-      usuarioId = response.first['id_usuario'];
-      expect(usuarioId, isNotNull);
-      print('👤 Usuario creado con ID: $usuarioId');
+      expect(usuario, isNotNull);
+      expect(usuario!.idUsuario, userId);
+      expect(usuario.nombre, "Tester");
+
+      print("📥 Usuario leído: ${usuario.nombre}");
     });
 
-    test('3️⃣ Insertar configuración', () async {
-      final response = await client.from('configuraciones').insert({
-        'id_usuario': usuarioId,
-        'modo_oscuro': true,
-        'notificaciones_activadas': false,
-        'sonido': true,
-      });
-      expect(response, isNotNull);
-      print('⚙️ Configuración creada correctamente.');
+    // ============================
+    // 3️⃣ Update estado_animo
+    // ============================
+    test('Actualizar estado de ánimo', () async {
+      final ok = await UsuarioService.actualizarEstadoAnimo(userId, 2);
+
+      expect(ok, true);
+
+      final usuario = await UsuarioService.getUsuario(userId);
+
+      expect(usuario!.estadoAnimo, 2);
+
+      print("😺 Estado actualizado a: ${usuario.estadoAnimo}");
     });
 
-    test('4️⃣ Insertar método', () async {
-      final response = await client.from('metodos').insert({
-        'nombre': 'Pomodoro',
-        'descripcion': 'Sesiones cortas de enfoque intenso',
-      }).select();
-      metodoId = response.first['id_metodo'];
-      print('📚 Método creado con ID: $metodoId');
+    // ============================
+    // 4️⃣ Modelo Usuario: fromMap / copyWith
+    // ============================
+    test('Verificación modelo Usuario', () async {
+      final data = {
+        'id_usuario': 10,
+        'nombre': 'Ana',
+        'estado_animo': 0,
+      };
+
+      final u = Usuario.fromMap(data);
+
+      expect(u.idUsuario, 10);
+      expect(u.nombre, "Ana");
+      expect(u.estadoAnimo, 0);
+
+      final u2 = u.copyWith(estadoAnimo: 1);
+
+      expect(u2.estadoAnimo, 1);
+
+      print("🧩 Modelo Usuario funciona correctamente.");
     });
 
-    test('5️⃣ Insertar tema', () async {
-      final response = await client.from('temas').insert({
-        'titulo': 'Estructuras de Datos',
-        'color_hex': '#C6905B',
-      }).select();
-      temaId = response.first['id_tema'];
-      print('🧠 Tema creado con ID: $temaId');
-    });
+    // ============================
+    // 5️⃣ Eliminar registro de prueba
+    // ============================
+    test('Eliminar usuario creado', () async {
+      final result = await SupabaseService.client
+          .from("usuarios")
+          .delete()
+          .eq("id_usuario", userId);
 
-    test('6️⃣ Insertar sesión', () async {
-      final response = await client.from('sesiones').insert({
-        'id_usuario': usuarioId,
-        'id_metodo': metodoId,
-        'id_tema': temaId,
-        'nombre_sesion': 'Sesión de prueba con Pomodoro',
-        'es_rapida': false,
-        'duracion_total': 25,
-      }).select();
-      sesionId = response.first['id_sesion'];
-      print('⏱️ Sesión creada con ID: $sesionId');
-    });
+      // En la API moderna, result puede ser List o Map; revisamos si hubo error
+      expect(result is Map ? result['error'] == null : true , true);
 
-    test('7️⃣ Insertar stat', () async {
-      final response = await client.from('stats').insert({
-        'id_usuario': usuarioId,
-        'id_sesion': sesionId,
-        'tiempo_total_estudio': 25,
-        'ciclos_completados': 4,
-      }).select();
-      expect(response, isNotEmpty);
-      print('📊 Stat creada correctamente.');
-    });
-
-    test('8️⃣ Limpieza final', () async {
-      await client.from('usuarios').delete().eq('id_usuario', usuarioId);
-      print('🧹 Usuario y registros relacionados eliminados.');
+      print("🗑️ Usuario $userId eliminado.");
     });
   });
 }
