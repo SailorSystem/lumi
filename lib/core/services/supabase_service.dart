@@ -1,3 +1,4 @@
+//lib/core/services/supabase_service.dart
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 /// Servicio global para manejar la conexión y operaciones básicas con Supabase.

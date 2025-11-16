@@ -1,5 +1,6 @@
-import 'package:lumi_app/core/models/usuario.dart';
-import 'package:lumi_app/core/services/supabase_service.dart';
+// lib/core/services/usuario_service.dart
+import '../../core/models/usuario.dart';
+import '../../core/services/supabase_service.dart';
 
 class UsuarioService {
   static final _client = SupabaseService.client;

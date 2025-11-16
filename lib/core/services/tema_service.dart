@@ -1,5 +1,6 @@
-import 'package:lumi_app/core/models/tema.dart';
-import 'package:lumi_app/core/services/supabase_service.dart';
+// lib/core/services/tema_service.dart
+import '../../core/models/tema.dart';
+import '../../core/services/supabase_service.dart';
 
 /// Servicio para la tabla `temas`.
 class TemaService {

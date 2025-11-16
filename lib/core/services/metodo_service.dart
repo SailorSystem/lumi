@@ -1,5 +1,5 @@
-import 'package:lumi_app/core/models/metodo.dart';
-import 'package:lumi_app/core/services/supabase_service.dart';
+import '../../core/models/metodo.dart';
+import '../../core/services/supabase_service.dart';
 
 /// Servicio para la tabla `metodos`.
 class MetodoService {

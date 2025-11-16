@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/services/usuario_service.dart';
+import '../../core/models/usuario.dart';
+
 class FirstRegisterScreen extends StatefulWidget {
   const FirstRegisterScreen({super.key});
 
@@ -27,12 +30,31 @@ class _FirstRegisterScreenState extends State<FirstRegisterScreen> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString("user_name", name);
 
-    // Aquí podrías registrar en Supabase si quieres:
-    // await UsuarioService.crearUsuario(name);
+    Usuario? nuevoUsuario;
+
+    try {
+      nuevoUsuario = await UsuarioService.crearUsuario(name);
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Error registrando usuario: $e")),
+      );
+      setState(() => _saving = false);
+      return;
+    }
+
+    if (nuevoUsuario == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Error: Supabase no devolvió usuario.")),
+      );
+      setState(() => _saving = false);
+      return;
+    }
+
+    await prefs.setInt("user_id", nuevoUsuario.idUsuario);
 
     if (!mounted) return;
 
-    Navigator.pop(context); // Regresa al Home
+    Navigator.pop(context, nuevoUsuario);
   }
 
   @override
@@ -61,18 +83,18 @@ class _FirstRegisterScreenState extends State<FirstRegisterScreen> {
                 const Text(
                   "Bienvenido",
                   style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF2C4459),
-                  ),
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF2C4459)),
                 ),
                 const SizedBox(height: 12),
                 const Text(
                   "Antes de comenzar,\n¿cuál es tu nombre?",
                   textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 16, color: Colors.black87),
+                  style: TextStyle(fontSize: 16),
                 ),
                 const SizedBox(height: 20),
+
                 TextField(
                   controller: _nameCtrl,
                   decoration: InputDecoration(
@@ -80,21 +102,15 @@ class _FirstRegisterScreenState extends State<FirstRegisterScreen> {
                     filled: true,
                     fillColor: Colors.white,
                     border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                  ),
-                ),
-                const SizedBox(height: 20),
-                ElevatedButton(
-                  onPressed: _saving ? null : _saveName,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF2C4459),
-                    foregroundColor: Colors.white,
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 36, vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
+                      borderRadius: BorderRadius.circular(12),
                     ),
                   ),
+                ),
+
+                const SizedBox(height: 20),
+
+                ElevatedButton(
+                  onPressed: _saving ? null : _saveName,
                   child: _saving
                       ? const SizedBox(
                           width: 22,
@@ -102,10 +118,7 @@ class _FirstRegisterScreenState extends State<FirstRegisterScreen> {
                           child: CircularProgressIndicator(
                               strokeWidth: 2, color: Colors.white),
                         )
-                      : const Text(
-                          "Guardar",
-                          style: TextStyle(fontSize: 16),
-                        ),
+                      : const Text("Guardar"),
                 ),
               ],
             ),

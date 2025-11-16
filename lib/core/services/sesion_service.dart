@@ -1,5 +1,5 @@
-import 'package:lumi_app/core/models/sesion.dart';
-import 'package:lumi_app/core/services/supabase_service.dart';
+import '../../core/models/sesion.dart';
+import '../../core/services/supabase_service.dart';
 
 /// Servicio para la tabla `sesiones`.
 class SesionService {

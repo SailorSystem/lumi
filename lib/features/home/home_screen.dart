@@ -1,19 +1,27 @@
 // lib/features/home/home_screen.dart
+
 import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
 import 'crear_sesion_screen.dart';
 import 'start_screen.dart';
 import 'sesion_rapida.dart';
 import '../settings/settings_screen.dart';
 import '../stats/stats_screen.dart';
 import '../../widgets/lumi_char.dart';
-import '../../features/home/firstre_screen.dart';
+
+// Importa el modelo Usuario correctamente
+import '../../core/models/usuario.dart';
+import 'firstre_screen.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  final Usuario? usuario; // recibe usuario opcional
+
+  const HomeScreen({super.key, this.usuario});
+
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
@@ -26,6 +34,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   List<Map<String, dynamic>> _completedSessions = [];
   late final AnimationController _pulse;
+
+  // usamos el nombre real del modelo: 'nombre'
+  String _userName = "Nay";
 
   final _quotes = <String>[
     'Un bloque a la vez.',
@@ -41,11 +52,15 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   @override
   void initState() {
     super.initState();
-    _checkFirstTime();
-    _loadCompletedSessions();
     _pulse = AnimationController(vsync: this, duration: const Duration(seconds: 2))..repeat(reverse: true);
-  }
 
+    _loadUser();            // carga usuario desde parámetro o SharedPreferences
+    _loadCompletedSessions();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkFirstTime();   // revisar registro sólo después del primer frame
+    });
+  }
 
   @override
   void dispose() {
@@ -54,9 +69,26 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     super.dispose();
   }
 
+  // Cargar usuario: si viene por parámetro lo usamos, sino SharedPreferences
+  Future<void> _loadUser() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    if (widget.usuario != null) {
+      // Atención: usamos las propiedades reales del modelo Usuario
+      _userName = widget.usuario!.nombre;
+      await prefs.setString("user_name", _userName);
+      await prefs.setInt("user_id", widget.usuario!.idUsuario);
+    } else {
+      _userName = prefs.getString("user_name") ?? "Nay";
+    }
+
+    if (mounted) setState(() {});
+  }
+
   Future<void> _loadCompletedSessions() async {
     final prefs = await SharedPreferences.getInstance();
     final sessionsJson = prefs.getStringList('completed_sessions') ?? [];
+    if (!mounted) return;
     setState(() {
       _completedSessions = sessionsJson.map((s) => Map<String, dynamic>.from(json.decode(s))).toList();
     });
@@ -83,13 +115,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         backgroundColor: _bar,
         elevation: 0,
         titleSpacing: 16,
-        title: FutureBuilder<SharedPreferences>(
-          future: SharedPreferences.getInstance(),
-          builder: (context, snap) {
-            final userName = snap.data?.getString('user_name') ?? 'Nay';
-            return Text('Hola $userName', style: const TextStyle(fontWeight: FontWeight.w700));
-          },
-        ),
+        title: Text('Hola $_userName', style: const TextStyle(fontWeight: FontWeight.w700)),
         actions: [
           IconButton(icon: const Icon(Icons.bar_chart), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const StatsScreen()))),
           IconButton(icon: const Icon(Icons.settings), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()))),
@@ -103,7 +129,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 constraints: BoxConstraints(maxWidth: maxBody),
                 child: Column(
                   children: [
-                    _headerHero(context),
+                    _headerHero(),
                     const SizedBox(height: 24),
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -189,7 +215,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
   }
 
-  Widget _headerHero(BuildContext context) {
+  Widget _headerHero() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
       child: Container(
@@ -224,7 +250,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       borderRadius: BorderRadius.circular(20),
       onTap: onTap,
       child: Ink(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 14),  // Cambiado de 12 a 8 para más espacio
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 14),
         decoration: BoxDecoration(
           color: const Color(0xFFF6EFE9),
           border: Border.all(color: Colors.black26),
@@ -234,12 +260,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(icon, color: _primary),
-            const SizedBox(width: 6),  // Reducido de 8 a 6 para ahorrar espacio
+            const SizedBox(width: 6),
             Flexible(
               child: Text(
                 label,
-                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),  // Agregado fontSize: 14 para texto más pequeño
-                overflow: TextOverflow.ellipsis,  // Mantén esto por si acaso en dispositivos extremos
+                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                overflow: TextOverflow.ellipsis,
               ),
             ),
           ],
@@ -258,7 +284,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       ),
       child: ListTile(
         leading: CircleAvatar(backgroundColor: _session, child: const Icon(Icons.check, color: Colors.white)),
-        title: Text(session['titulo'] as String, maxLines: 1, overflow: TextOverflow.ellipsis),
+        title: Text(session['titulo'] ?? '', maxLines: 1, overflow: TextOverflow.ellipsis),
         subtitle: Text((session['fecha'] ?? '').toString().replaceAll('T', ' ').substring(0, 16), style: const TextStyle(color: Colors.black54)),
         trailing: const Icon(Icons.chevron_right),
         onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => StartScreen(session: session))),
@@ -284,18 +310,33 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
   }
 
+  // ahora solo se abre FirstRegisterScreen si NO hay user
   Future<void> _checkFirstTime() async {
-  final prefs = await SharedPreferences.getInstance();
-  final userName = prefs.getString("user_name");
+    if (widget.usuario != null) return; // Ya hay usuario, no mostrar registro
 
-  if (userName == null || userName.trim().isEmpty) {
-    // Usuario nuevo → enviar a pantalla de registro
-    Future.microtask(() {
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => const FirstRegisterScreen()),
-      );
-    });
+    final prefs = await SharedPreferences.getInstance();
+    final userName = prefs.getString("user_name");
+
+    if (userName == null || userName.trim().isEmpty) {
+      Future.microtask(() async {
+        // abrimos la pantalla de registro y esperamos el resultado
+        final nuevoUsuario = await Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const FirstRegisterScreen()),
+        );
+
+        // si FirstRegisterScreen devolvió un Usuario, lo usamos
+        if (nuevoUsuario is Usuario) {
+          setState(() {
+            _userName = nuevoUsuario.nombre;
+          });
+
+          // guardamos en prefs por si acaso
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString("user_name", nuevoUsuario.nombre);
+          await prefs.setInt("user_id", nuevoUsuario.idUsuario);
+        }
+      });
     }
   }
 }
