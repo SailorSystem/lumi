@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'home_screen.dart';
+import '../../core/models/sesion.dart';
+import '../../core/services/sesion_service.dart';
 
 class CrearNuevaSesionScreen extends StatefulWidget {
   const CrearNuevaSesionScreen({super.key});
@@ -106,30 +108,111 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
 
   Future<void> _saveSession() async {
     if (!_formKey.currentState!.validate()) return;
-    final session = {
-      'titulo': _titleController.text,
-      // Guardamos la sesión con la key 'materia'
-      'materia': _materiaSel == null ? null : {
-        'id': _materiaSel!['id'], 'nombre': _materiaSel!['nombre'], 'color': _materiaSel!['color']
-      },
-      'metodo': _selectedMetodo,
-      'fecha': DateTime(
-        _selectedDate.year, _selectedDate.month, _selectedDate.day,
-        _selectedTime.hour, _selectedTime.minute,
-      ).toIso8601String(),
-      'duracion': _two(_dur.inHours) + ':' + _two(_dur.inMinutes % 60) + ':' + _two(_dur.inSeconds % 60),
-      'estado': 'pendiente',
-    };
+
     final prefs = await SharedPreferences.getInstance();
-    final sessions = prefs.getStringList('completed_sessions') ?? [];
-    sessions.add(json.encode(session));
-    await prefs.setStringList('completed_sessions', sessions);
-    if (!mounted) return;
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => const HomeScreen()),
-          (_) => false,
+    final userId = prefs.getInt('user_id');
+
+    if (userId == null) {
+      // No hay usuario en prefs: pedir registro / mostrar error
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No hay usuario activo. Regístrate primero.')),
+      );
+      return;
+    }
+
+    // Mapear método a id_metodo si tienes IDs. Por ahora asumimos Pomodoro = 1
+    int? metodoId;
+    if (_selectedMetodo.toLowerCase() == 'pomodoro') metodoId = 1;
+    // Si luego tienes una tabla metodos, ajusta para buscar el id real.
+
+    // Intentaremos mapear materia a id_tema si es numérico; si no, lo dejamos null
+    int? idTema;
+    if (_materiaSel != null) {
+      final mid = _materiaSel!['id'];
+      if (mid is int) idTema = mid;
+      else if (mid is String) {
+        final parsed = int.tryParse(mid);
+        if (parsed != null) idTema = parsed;
+        // si no es numérico, dejamos null (puedes guardar materia aparte)
+      }
+    }
+
+    final fecha = DateTime(
+      _selectedDate.year,
+      _selectedDate.month,
+      _selectedDate.day,
+      _selectedTime.hour,
+      _selectedTime.minute,
     );
+
+    final duracionSegundos = _dur.inSeconds > 0 ? _dur.inSeconds : null;
+
+    final nuevaSesion = Sesion(
+      idSesion: null,
+      idUsuario: userId,
+      idMetodo: metodoId,
+      idTema: idTema,
+      nombreSesion: _titleController.text.trim(),
+      fecha: fecha,
+      esRapida: false,
+      duracionTotal: duracionSegundos,
+    );
+
+    // Mostrar loading simple
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      final creado = await SesionService.crearSesion(nuevaSesion);
+
+      Navigator.of(context).pop(); // quitar loading
+
+      if (creado == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No se pudo crear la sesión en Supabase.')),
+        );
+        return;
+      }
+
+      // Opcional: guardar una versión local (para compatibilidad con tu home si aún lee prefs)
+      final sessionsLocal = prefs.getStringList('completed_sessions') ?? [];
+      final localMap = {
+        'id_sesion': creado.idSesion,
+        'id_usuario': creado.idUsuario,
+        'id_metodo': creado.idMetodo,
+        'id_tema': creado.idTema,
+        'titulo': creado.nombreSesion,
+        'fecha': creado.fecha.toIso8601String(),
+        'es_rapida': creado.esRapida,
+        'duracion_total': creado.duracionTotal,
+        'estado': 'programada',
+      };
+      sessionsLocal.add(json.encode(localMap));
+      await prefs.setStringList('completed_sessions', sessionsLocal);
+
+      // Confirmación y volver al Home (o mostrar la sesión recién creada)
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Sesión creada correctamente.')),
+      );
+
+      if (!mounted) return;
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const HomeScreen()),
+        (_) => false,
+      );
+    } catch (e) {
+      Navigator.of(context).pop(); // quitar loading si hay error
+      debugPrint('Error creando sesión en Supabase: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error creando sesión: $e')),
+      );
+    }
   }
+
+
 
   Widget _lumiPickerButton({
     required IconData icon,

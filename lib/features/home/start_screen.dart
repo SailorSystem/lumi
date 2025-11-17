@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import '../metodos/pomodoro/pomodoro_screen.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest.dart' as tz;
-import '../../main.dart';
+
+import '../../core/models/sesion.dart';
+import '../../core/services/supabase_service.dart';
+import '../metodos/pomodoro/pomodoro_screen.dart';
 
 class StartScreen extends StatefulWidget {
-  final Map<String, dynamic>? session;
+  final int? idSesion; // ← AHORA RECIBE SOLO EL ID
 
-  const StartScreen({super.key, this.session});
+  const StartScreen({super.key, required this.idSesion});
 
   @override
   State<StartScreen> createState() => _StartScreenState();
@@ -22,13 +24,38 @@ class _StartScreenState extends State<StartScreen> {
   final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
       FlutterLocalNotificationsPlugin();
 
+  Sesion? sesion;
+  bool loading = true;
+
   @override
   void initState() {
     super.initState();
-    if (widget.session != null) {
-      _initializeNotifications();
-      _scheduleNotifications();
+    cargarSesion();
+  }
+
+  Future<void> cargarSesion() async {
+    if (widget.idSesion == null) {
+      setState(() {
+        loading = false;
+      });
+      return;
     }
+
+    final data = await SupabaseService.client
+        .from('sesiones')
+        .select()
+        .eq('id_sesion', widget.idSesion!)
+        .maybeSingle();
+
+    if (data != null) {
+      sesion = Sesion.fromMap(data);
+      await _initializeNotifications();
+      await _scheduleNotifications();
+    }
+
+    setState(() {
+      loading = false;
+    });
   }
 
   Future<void> _initializeNotifications() async {
@@ -39,26 +66,30 @@ class _StartScreenState extends State<StartScreen> {
   }
 
   Future<void> _scheduleNotifications() async {
-    if (widget.session == null) return;
-    final sessionDate = DateTime.parse(widget.session!['fecha'] as String);
+    if (sesion == null) return;
+
+    final sessionDate = sesion!.fecha;
     final now = DateTime.now();
+
     if (sessionDate.isBefore(now)) return;
 
     final reminderDate = sessionDate.subtract(const Duration(minutes: 5));
-    final androidDetails = AndroidNotificationDetails(
+
+    const androidDetails = AndroidNotificationDetails(
       'session_channel',
       'Sesiones',
       channelDescription: 'Recordatorios de sesiones',
       importance: Importance.high,
       priority: Priority.high,
     );
-    final details = NotificationDetails(android: androidDetails);
+
+    const details = NotificationDetails(android: androidDetails);
 
     if (reminderDate.isAfter(now)) {
       await flutterLocalNotificationsPlugin.zonedSchedule(
         sessionDate.hashCode ^ 0x1000,
         'Sesión en 5 min',
-        'Tu sesión "${widget.session!['titulo']}" comienza en 5 minutos',
+        'Tu sesión "${sesion!.nombreSesion}" comienza en 5 minutos',
         tz.TZDateTime.from(reminderDate, tz.local),
         details,
         uiLocalNotificationDateInterpretation:
@@ -70,7 +101,7 @@ class _StartScreenState extends State<StartScreen> {
     await flutterLocalNotificationsPlugin.zonedSchedule(
       sessionDate.hashCode ^ 0x1001,
       'Sesión iniciando',
-      'Es hora de: ${widget.session!['titulo']}',
+      'Es hora de: ${sesion!.nombreSesion}',
       tz.TZDateTime.from(sessionDate, tz.local),
       details,
       uiLocalNotificationDateInterpretation:
@@ -80,7 +111,7 @@ class _StartScreenState extends State<StartScreen> {
   }
 
   void _startSession() {
-    if (widget.session?['metodo'] == 'Pomodoro') {
+    if (sesion?.idMetodo == 1) {
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
@@ -92,13 +123,25 @@ class _StartScreenState extends State<StartScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final title = widget.session?['titulo'] ?? 'Sesión';
+    if (loading) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (sesion == null) {
+      return const Scaffold(
+        body: Center(child: Text('Sesión no encontrada')),
+      );
+    }
+
+    final hora = "${sesion!.fecha.hour.toString().padLeft(2, '0')}:${sesion!.fecha.minute.toString().padLeft(2, '0')}";
 
     return Scaffold(
       backgroundColor: _bg,
       appBar: AppBar(
         backgroundColor: _bar,
-        title: Text(title),
+        title: Text(sesion!.nombreSesion),
         centerTitle: true,
         elevation: 0,
         leading: IconButton(
@@ -125,9 +168,7 @@ class _StartScreenState extends State<StartScreen> {
                 ),
                 const SizedBox(height: 18),
                 Text(
-                  widget.session?['metodo'] != null
-                      ? 'Método: ${widget.session!['metodo']}'
-                      : '',
+                  'Método: ${sesion!.idMetodo ?? "Sin método"}',
                   style: TextStyle(fontSize: 14, color: _primary.withOpacity(0.9)),
                 ),
                 const SizedBox(height: 20),
@@ -174,10 +215,8 @@ class _StartScreenState extends State<StartScreen> {
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  widget.session?['fecha'] != null
-                      ? 'Hora: ${DateTime.parse(widget.session!['fecha']).hour.toString().padLeft(2, '0')}:${DateTime.parse(widget.session!['fecha']).minute.toString().padLeft(2, '0')}'
-                      : '',
-                  style: TextStyle(fontSize: 13, color: Colors.black54),
+                  'Hora: $hora',
+                  style: const TextStyle(fontSize: 13, color: Colors.black54),
                 ),
               ],
             ),
@@ -186,72 +225,4 @@ class _StartScreenState extends State<StartScreen> {
       ),
     );
   }
-}
-
-Future<void> scheduleSessionNotifications(Map<String, dynamic> session) async {
-  if (session == null) return;
-  try {
-    final sessionDate = DateTime.parse(session['fecha'] as String);
-    final now = DateTime.now();
-    if (sessionDate.isBefore(now)) return;
-
-    final reminderDate = sessionDate.subtract(const Duration(minutes: 5));
-    final androidDetails = AndroidNotificationDetails(
-      'session_channel',
-      'Sesiones',
-      channelDescription: 'Recordatorios de sesiones',
-      importance: Importance.high,
-      priority: Priority.high,
-    );
-    final details = NotificationDetails(android: androidDetails);
-
-    if (reminderDate.isAfter(now)) {
-      await flutterLocalNotificationsPlugin.zonedSchedule(
-        sessionDate.hashCode ^ 0x1000,
-        'Sesión en 5 min',
-        'Tu sesión "${session['titulo']}" comienza en 5 minutos',
-        tz.TZDateTime.from(reminderDate, tz.local),
-        details,
-        uiLocalNotificationDateInterpretation:
-            UILocalNotificationDateInterpretation.absoluteTime,
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-      );
-    }
-
-    await flutterLocalNotificationsPlugin.zonedSchedule(
-      sessionDate.hashCode ^ 0x1001,
-      'Sesión iniciando',
-      'Es hora de: ${session['titulo']}',
-      tz.TZDateTime.from(sessionDate, tz.local),
-      details,
-      uiLocalNotificationDateInterpretation:
-          UILocalNotificationDateInterpretation.absoluteTime,
-      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-    );
-  } catch (e) {
-    debugPrint('Error scheduling session notifications: $e');
-  }
-}
-
-Future<void> scheduleTestNotification() async {
-  final when = tz.TZDateTime.now(tz.local).add(const Duration(seconds: 10));
-  final details = NotificationDetails(
-    android: AndroidNotificationDetails(
-      'test',
-      'Pruebas',
-      channelDescription: 'Canal de pruebas',
-      importance: Importance.max,
-      priority: Priority.high,
-    ),
-  );
-  await flutterLocalNotificationsPlugin.zonedSchedule(
-    99999,
-    'Prueba',
-    'Notificación de prueba en 10s',
-    when,
-    details,
-    uiLocalNotificationDateInterpretation:
-        UILocalNotificationDateInterpretation.absoluteTime,
-    androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-  );
 }

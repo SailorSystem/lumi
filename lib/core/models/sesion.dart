@@ -9,6 +9,7 @@ class Sesion {
   final DateTime fecha;
   final bool esRapida;
   final int? duracionTotal;
+  final String estado; // <-- AGREGADO
 
   Sesion({
     this.idSesion,
@@ -19,6 +20,7 @@ class Sesion {
     required this.fecha,
     this.esRapida = false,
     this.duracionTotal,
+    this.estado = "programada", // <-- default en tu SQL
   });
 
   factory Sesion.fromMap(Map<String, dynamic> map) {
@@ -31,12 +33,12 @@ class Sesion {
       fecha: DateTime.parse(map['fecha']),
       esRapida: map['es_rapida'] ?? false,
       duracionTotal: map['duracion_total'],
+      estado: map['estado'] ?? 'programada',
     );
   }
 
   Map<String, dynamic> toMap() {
-    return {
-      'id_sesion': idSesion,
+    final map = {
       'id_usuario': idUsuario,
       'id_metodo': idMetodo,
       'id_tema': idTema,
@@ -44,6 +46,13 @@ class Sesion {
       'fecha': fecha.toIso8601String(),
       'es_rapida': esRapida,
       'duracion_total': duracionTotal,
+      'estado': estado,
     };
+
+    if (idSesion != null) {
+      map['id_sesion'] = idSesion;
+    }
+
+    return map;
   }
 }

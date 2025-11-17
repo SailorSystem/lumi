@@ -5,11 +5,24 @@ import '../../core/services/supabase_service.dart';
 class SesionService {
   static const table = 'sesiones';
 
-  static Future<List<Sesion>> obtenerSesionesPorUsuario(int idUsuario) async {
+  static Future<List<Sesion>> obtenerSesionesProgramadas(int idUsuario) async {
     final data = await SupabaseService.client
         .from(table)
         .select()
-        .eq('id_usuario', idUsuario);
+        .eq('id_usuario', idUsuario)
+        .eq('estado', 'programada')
+        .order('fecha', ascending: false);
+
+    return (data as List).map((e) => Sesion.fromMap(e)).toList();
+  }
+
+  static Future<List<Sesion>> obtenerSesionesConcluidas(int idUsuario) async {
+    final data = await SupabaseService.client
+        .from(table)
+        .select()
+        .eq('id_usuario', idUsuario)
+        .eq('estado', 'concluida')
+        .order('fecha', ascending: false);
 
     return (data as List).map((e) => Sesion.fromMap(e)).toList();
   }

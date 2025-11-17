@@ -15,6 +15,9 @@ import '../../widgets/lumi_char.dart';
 
 // Importa el modelo Usuario correctamente
 import '../../core/models/usuario.dart';
+import '../../core/models/sesion.dart';
+import '../../core/services/sesion_service.dart';
+import 'crear_sesion_screen.dart';
 import 'firstre_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -32,7 +35,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   static const _primary = Color(0xFF2C4459);
   static const _session = Color(0xFF80A6B3);
 
-  List<Map<String, dynamic>> _completedSessions = [];
+  List<Sesion> _completedSessions = [];
   late final AnimationController _pulse;
 
   // usamos el nombre real del modelo: 'nombre'
@@ -87,12 +90,19 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   Future<void> _loadCompletedSessions() async {
     final prefs = await SharedPreferences.getInstance();
-    final sessionsJson = prefs.getStringList('completed_sessions') ?? [];
+    final userId = prefs.getInt("user_id");
+
+    if (userId == null) return;
+
+    final sesiones = await SesionService.obtenerSesionesProgramadas(userId);
+
     if (!mounted) return;
+
     setState(() {
-      _completedSessions = sessionsJson.map((s) => Map<String, dynamic>.from(json.decode(s))).toList();
+      _completedSessions = sesiones; // ahora sí
     });
   }
+
 
   void _onLumiTap() {
     _quoteTimer?.cancel();
@@ -112,138 +122,235 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     return Scaffold(
       backgroundColor: _bg,
       appBar: AppBar(
-        backgroundColor: _bar,
+        backgroundColor: Colors.transparent,
         elevation: 0,
         titleSpacing: 16,
-        title: Text('Hola $_userName', style: const TextStyle(fontWeight: FontWeight.w700)),
+        title: Text(
+          'Hola $_userName',
+          style: const TextStyle(
+            fontWeight: FontWeight.w700,
+            color: _primary,
+          ),
+        ),
+        automaticallyImplyLeading: false,
         actions: [
-          IconButton(icon: const Icon(Icons.bar_chart), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const StatsScreen()))),
-          IconButton(icon: const Icon(Icons.settings), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()))),
+          IconButton(
+            icon: const Icon(Icons.bar_chart, color: _primary),
+            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const StatsScreen())),
+          ),
+          IconButton(
+            icon: const Icon(Icons.settings, color: _primary),
+            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen())),
+          ),
         ],
       ),
+      extendBodyBehindAppBar: true,
+
       body: Stack(
         children: [
           SingleChildScrollView(
-            child: Center(
-              child: ConstrainedBox(
-                constraints: BoxConstraints(maxWidth: maxBody),
-                child: Column(
-                  children: [
-                    _headerHero(),
-                    const SizedBox(height: 24),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: Row(
-                        children: [
-                          Expanded(child: _pillButton(icon: Icons.flash_on, label: 'Sesión rápida', onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SesionRapidaScreen())))),
-                          const SizedBox(width: 12),
-                          Expanded(child: _pillButton(icon: Icons.add_task, label: 'Nueva sesión', onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CrearNuevaSesionScreen())))),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text('Recientes', style: TextStyle(color: Colors.black.withOpacity(0.7), fontWeight: FontWeight.w600)),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: _completedSessions.isEmpty ? _emptyState() : Column(children: _completedSessions.take(8).map((s) => _sessionTile(context, s)).toList()),
-                    ),
-                    const SizedBox(height: 120), // espacio para que el Lumi flotante no tape contenido al final
-                  ],
-                ),
-              ),
-            ),
-          ),
+            child: Column(   // ← YA NO USAMOS CENTER AQUÍ (evita límites horizontales)
+              children: [
 
-          // ------- Lumi flotante inferior izquierda -------
-          Positioned(
-            left: 50,
-            bottom: 320 + MediaQuery.of(context).viewPadding.bottom,
-            child: GestureDetector(
-              onTap: _onLumiTap,
-              child: AnimatedBuilder(
-                animation: _pulse,
-                builder: (_, __) {
-                  final glow = 16 + 8 * _pulse.value;
-                  return Container(
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      boxShadow: [BoxShadow(color: _primary.withOpacity(0.30), blurRadius: glow, spreadRadius: glow * 0.22)],
-                    ),
-                    child: LumiChar(size: lumiSize),
-                  );
-                },
-              ),
-            ),
-          ),
+                // ------------------ HEADER DE ANCHO COMPLETO ------------------
+                _headerHero(),
 
-          // Burbuja motivacional junto a Lumi
-          if (_showQuote)
-            Positioned(
-              left: 16 + lumiSize * 0.66,
-              bottom: 16 + MediaQuery.of(context).viewPadding.bottom + lumiSize * 0.58,
-              child: AnimatedOpacity(
-                duration: const Duration(milliseconds: 180),
-                opacity: 1,
-                child: Container(
-                  constraints: const BoxConstraints(maxWidth: 260),
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(14),
-                    boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 6, offset: Offset(0, 2))],
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.auto_awesome, color: _primary, size: 18),
-                      const SizedBox(width: 8),
-                      Flexible(child: Text(_quote, style: const TextStyle(fontWeight: FontWeight.w600),overflow: TextOverflow.ellipsis,maxLines: 1,)),
-                    ],
+                // ------------------ CONTENIDO LIMITADO A maxBody ------------------
+                Center(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: maxBody),
+                    child: Column(
+                      children: [
+                        const SizedBox(height: 4),
+
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: _pillButton(
+                                  icon: Icons.flash_on,
+                                  label: 'Sesión rápida',
+                                  onTap: () => Navigator.push(
+                                    context,
+                                    MaterialPageRoute(builder: (_) => const SesionRapidaScreen()),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: _pillButton(
+                                  icon: Icons.add_task,
+                                  label: 'Nueva sesión',
+                                  onTap: () => Navigator.push(
+                                    context,
+                                    MaterialPageRoute(builder: (_) => const CrearNuevaSesionScreen()),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        const SizedBox(height: 16),
+
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              'Recientes',
+                              style: TextStyle(
+                                color: Colors.black.withOpacity(0.7),
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+
+                        const SizedBox(height: 8),
+
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: _completedSessions.isEmpty
+                              ? _emptyState()
+                              : Column(
+                                  children: _completedSessions
+                                      .take(8)
+                                      .map((s) => _sessionTile(context, s))
+                                      .toList(),
+                                ),
+                        ),
+
+                        const SizedBox(height: 120), // espacio por Lumi
+                      ],
+                    ),
                   ),
                 ),
-              ),
+              ],
             ),
+          ),          
         ],
       ),
     );
   }
 
   Widget _headerHero() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+    return ClipRRect(
+      borderRadius: const BorderRadius.only(
+        bottomLeft: Radius.circular(50),
+        bottomRight: Radius.circular(50),
+      ),
       child: Container(
-        height: 220,
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [_bar, Color(0xFFCBB6A4)]),
-          borderRadius: BorderRadius.circular(28),
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(16, 90, 16, 30),
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Color(0xFFB6C9D6), // mar calmado (arriba)
+              Color(0xFFE6DACA), // arena clara
+              Color(0xFFD9CBBE), // arena suave (abajo)
+            ],
+            stops: [0.0, 0.25, 1.0], // 25% mar, 75% arena
+          ),
         ),
-        child: const Padding(
-          padding: EdgeInsets.fromLTRB(24, 24, 24, 24),
-          child: Align(
-            alignment: Alignment.topLeft,
-            child: SizedBox(
-              width: 260,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Color(0xFFC6905B).withOpacity(0.45), // mejor contraste
+                borderRadius: BorderRadius.circular(22),
+              ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Me llamo Lumi', style: TextStyle(fontSize: 20, color: _primary, fontWeight: FontWeight.w700)),
-                  SizedBox(height: 6),
-                  Text('Tu compañero para estudiar mejor', style: TextStyle(color: _primary)),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      LumiChar(
+                        size: 74,
+                        onMessage: (msg) {
+                          setState(() {
+                            _quote = msg;
+                            _showQuote = true;
+                          });
+                        },
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(child: _motivationalBubble()),
+                    ],
+                  ),
+
+                  const SizedBox(height: 10),
+
+                  Text(
+                    "Me llamo Lumi ✨",
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
                 ],
               ),
             ),
-          ),
+
+          ],
         ),
       ),
     );
   }
+
+  Widget _motivationalBubble() {
+    if (!_showQuote) return const SizedBox.shrink();
+
+    return AnimatedOpacity(
+      duration: const Duration(milliseconds: 250),
+      opacity: 1,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        constraints: const BoxConstraints(maxWidth: 210),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.92),
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: const [
+            BoxShadow(
+              color: Colors.black26,
+              blurRadius: 6,
+              offset: Offset(0, 2),
+            )
+          ],
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Text(
+                _quote,
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            GestureDetector(
+              onTap: () => setState(() => _showQuote = false),
+              child: const Icon(Icons.close, size: 18, color: Colors.teal),
+            )
+          ],
+        ),
+      ),
+    );
+  }
+
+
+
+
 
   Widget _pillButton({required IconData icon, required String label, required VoidCallback onTap}) {
     return InkWell(
@@ -274,23 +381,35 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
   }
 
-  Widget _sessionTile(BuildContext context, Map<String, dynamic> session) {
+  Widget _sessionTile(BuildContext context, Sesion session) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      decoration: BoxDecoration(
-        color: _session.withOpacity(0.18),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: _session.withOpacity(0.35)),
-      ),
       child: ListTile(
-        leading: CircleAvatar(backgroundColor: _session, child: const Icon(Icons.check, color: Colors.white)),
-        title: Text(session['titulo'] ?? '', maxLines: 1, overflow: TextOverflow.ellipsis),
-        subtitle: Text((session['fecha'] ?? '').toString().replaceAll('T', ' ').substring(0, 16), style: const TextStyle(color: Colors.black54)),
+        leading: CircleAvatar(
+          backgroundColor: Colors.deepPurple,
+          child: const Icon(Icons.check, color: Colors.white),
+        ),
+        title: Text(
+          session.nombreSesion,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        subtitle: Text(
+          session.fecha.toString().substring(0, 16),
+          style: const TextStyle(color: Colors.black54),
+        ),
         trailing: const Icon(Icons.chevron_right),
-        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => StartScreen(session: session))),
+
+        // 👉 SOLO SE ENVÍA EL ID, tal como quieres
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => StartScreen(idSesion: session.idSesion),
+          ),
+        ),
       ),
     );
   }
+
 
   Widget _emptyState() {
     return Container(
