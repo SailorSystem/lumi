@@ -1,11 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../core/services/usuario_service.dart';
 
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key});
+  final int idUsuario;
+
+  const SettingsScreen({super.key, required this.idUsuario});
+
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
+
 
 class _SettingsScreenState extends State<SettingsScreen> {
   // Paleta
@@ -39,11 +44,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _updateName(String newName) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('user_name', newName);
+
+    final ok = await UsuarioService.actualizarNombre(widget.idUsuario, newName);
+
+    if (!ok) {
+      print("❌ Error al actualizar nombre en Supabase");
+    }
+
     setState(() {
-      _userName = newName.isEmpty ? 'Usuario' : newName;
-      _changedForHome = true;
+      _userName = newName;
+      _changedForHome = true;  // 🔥 indica que Home debe refrescar
     });
   }
+
 
   Future<void> _updateBool(String key, bool value) async {
     final prefs = await SharedPreferences.getInstance();

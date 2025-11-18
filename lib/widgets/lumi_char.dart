@@ -51,19 +51,22 @@ class _LumiCharState extends State<LumiChar> {
         width: widget.size,
         height: widget.size,
         decoration: BoxDecoration(
-          border: Border.all(color: Colors.white, width: 2),
           shape: BoxShape.circle,
+          border: Border.all(color: Colors.white, width: 2),
+          color: Colors.transparent,
           boxShadow: [
             BoxShadow(
               color: Colors.black.withOpacity(0.15),
               blurRadius: 8,
+              offset: Offset(0, 2),
             )
           ],
         ),
         child: ClipOval(
           child: Image.asset(
-            'assets/images/lumi_char.jpg',
-            fit: BoxFit.cover,
+            'assets/images/lumi.png',
+            fit: BoxFit.cover,  // 🔥 AHORA OCUPA TODO EL CÍRCULO
+            alignment: Alignment.center,
           ),
         ),
       ),
