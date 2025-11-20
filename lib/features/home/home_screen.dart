@@ -5,7 +5,7 @@ import 'dart:math' as math;
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:provider/provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'crear_sesion_screen.dart';
 import 'start_screen.dart';
@@ -13,13 +13,13 @@ import 'sesion_rapida.dart';
 import '../settings/settings_screen.dart';
 import '../stats/stats_screen.dart';
 import '../../widgets/lumi_char.dart';
-import '../../core/providers/theme_provider.dart';
 
 // Importa el modelo Usuario correctamente
 import '../../core/models/usuario.dart';
 import '../../core/models/sesion.dart';
 import '../../core/services/sesion_service.dart';
 import '../../core/services/usuario_service.dart';
+import '../../core/services/stat_service.dart';
 import 'firstre_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -30,12 +30,15 @@ class HomeScreen extends StatefulWidget {
 }
 
 
-class _HomeScreenState extends State<HomeScreen>
-    with SingleTickerProviderStateMixin {
-  // static const _bg = Color(0xFFD9CBBE);
-  // static const _bar = Color(0xFFB49D87);
-  // static const _primary = Color(0xFF2C4459);
+class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMixin, WidgetsBindingObserver {
+  static const _bg = Color(0xFFD9CBBE);
+  static const _bar = Color(0xFFB49D87);
+  static const _primary = Color(0xFF2C4459);
   static const _session = Color(0xFF80A6B3);
+
+  DateTime? _inicio;
+  Timer? _tiempoUsoTimer;
+  int _segundosAcumulados = 0;
 
   List<Sesion> _completedSessions = [];
   late final AnimationController _pulse;
@@ -71,14 +74,63 @@ class _HomeScreenState extends State<HomeScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkFirstTime();
     });
-  }
 
+    // INICIO DE MEDICIÓN DE TIEMPO
+    WidgetsBinding.instance.addObserver(this);
+    _inicio = DateTime.now();
+    _tiempoUsoTimer = Timer.periodic(const Duration(minutes: 1), _enviarTiempoUso);
+  }
 
   @override
   void dispose() {
     _pulse.dispose();
     _quoteTimer?.cancel();
+    _tiempoUsoTimer?.cancel();
+
+    WidgetsBinding.instance.removeObserver(this);
+    _enviarTiempoUsoFinal(); // Envía el tiempo pendiente al cerrar
+
     super.dispose();
+  }
+
+  void _enviarTiempoUso(Timer timer) async {
+    if (_inicio != null && _userId != null) {
+      final ahora = DateTime.now();
+      final diff = ahora.difference(_inicio!).inSeconds;
+      _segundosAcumulados += diff;
+      _inicio = ahora;
+      if (_userId != null && _segundosAcumulados > 0) {
+        await StatService.incrementarTiempoUso(_userId!, _segundosAcumulados);
+        _segundosAcumulados = 0;
+      }
+    }
+  }
+
+  void _enviarTiempoUsoFinal() async {
+    if (_inicio != null && _userId != null) {
+      final ahora = DateTime.now();
+      final diff = ahora.difference(_inicio!).inSeconds;
+      _segundosAcumulados += diff;
+      if (_segundosAcumulados > 0) {
+        try {
+          await Supabase.instance.client.rpc('increment_app_time', params: {
+            'p_id_usuario': _userId,
+            'p_seconds': _segundosAcumulados,
+          });
+        } catch (e) {
+          print('Error final supabase: $e');
+        }
+        _segundosAcumulados = 0;
+      }
+    }
+  }
+  
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.detached) {
+      _enviarTiempoUsoFinal();
+    }
   }
 
   Future<void> _loadUser() async {
@@ -91,8 +143,6 @@ class _HomeScreenState extends State<HomeScreen>
     final nombre = await UsuarioService.obtenerNombre(userId);
 
     if (nombre != null) {
-      Provider.of<ThemeProvider>(context, listen: false).userId = _userId;
-      await Provider.of<ThemeProvider>(context, listen: false).initialize();
       _userName = nombre;
       await prefs.setString("user_name", nombre);
     } else {
@@ -102,29 +152,26 @@ class _HomeScreenState extends State<HomeScreen>
 
     if (mounted) setState(() {});
   }
-
+  
   Future<void> _loadUserData() async {
     final prefs = await SharedPreferences.getInstance();
-    _userId = prefs.getInt('user_id');
+    _userId = prefs.getInt('user_id');   // 🔥 carga el id real desde Supabase login
 
-    if (_userId != null) {
-      // 🔥 CORRECCIÓN 1: Acceder al setter de forma pública
-      Provider
-          .of<ThemeProvider>(context, listen: false)
-          .userId = _userId;
-      await Provider.of<ThemeProvider>(context, listen: false).initialize();
-
-      final nombre = await UsuarioService.obtenerNombre(_userId!);
-
-      if (nombre != null) {
-        _userName = nombre;
-        prefs.setString('user_name', nombre);
-      } else {
-        _userName = prefs.getString('user_name') ?? 'Usuario';
-      }
-
-      if (mounted) setState(() {});
+    if (_userId == null) {
+      print("❌ No hay user_id en SharedPreferences");
+      return;
     }
+
+    final nombre = await UsuarioService.obtenerNombre(_userId!);
+
+    if (nombre != null) {
+      _userName = nombre;
+      prefs.setString('user_name', nombre);
+    } else {
+      _userName = prefs.getString('user_name') ?? 'Usuario';
+    }
+
+    if (mounted) setState(() {});
   }
 
 
@@ -177,33 +224,26 @@ class _HomeScreenState extends State<HomeScreen>
 
   @override
   Widget build(BuildContext context) {
-    final themeProvider = Provider.of<ThemeProvider>(context);
-    final _primary = themeProvider.primaryColor;
-    final _bg = themeProvider.backgroundColor;
-    final _bar = themeProvider.appBarColor;
-    final _textColor = themeProvider.textColor;
-    final _cardColor = themeProvider.cardColor;
-
     final w = MediaQuery.of(context).size.width;
     final maxBody = math.min(w * 0.92, 720.0);
 
     return Scaffold(
-        backgroundColor: _bg,
-        appBar: AppBar(
-            backgroundColor: Colors.transparent,
-            elevation: 0,
-            titleSpacing: 16,
-            title: Text(
-              'Hola $_userName',
-              style: TextStyle(
-                fontWeight: FontWeight.w700,
-                color: _primary,
-              ),
-            ),
-            automaticallyImplyLeading: false,
-            actions: [
-        IconButton(
-        icon: Icon(Icons.bar_chart, color: _primary),
+      backgroundColor: _bg,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        titleSpacing: 16,
+        title: Text(
+          'Hola $_userName',
+          style: const TextStyle(
+            fontWeight: FontWeight.w700,
+            color: _primary,
+          ),
+        ),
+        automaticallyImplyLeading: false,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.bar_chart, color: _primary),
             onPressed: () => Navigator.push(context,
                 MaterialPageRoute(builder: (_) => const StatsScreen())),
           ),
@@ -234,7 +274,7 @@ class _HomeScreenState extends State<HomeScreen>
           SingleChildScrollView(
             child: Column(
               children: [
-                _headerHero(themeProvider),//cambiar
+                _headerHero(),
 
                 Center(
                   child: ConstrainedBox(
@@ -252,8 +292,6 @@ class _HomeScreenState extends State<HomeScreen>
                                 child: _pillButton(
                                   icon: Icons.flash_on,
                                   label: 'Sesión rápida',
-                                  primaryColor: _primary,
-                                  textColor: _textColor,
                                   onTap: () => Navigator.push(
                                       context,
                                       MaterialPageRoute(
@@ -266,8 +304,6 @@ class _HomeScreenState extends State<HomeScreen>
                                 child: _pillButton(
                                   icon: Icons.add_task,
                                   label: 'Nueva sesión',
-                                  primaryColor: _primary,
-                                  textColor: _textColor,
                                   onTap: () => Navigator.push(
                                     context,
                                     MaterialPageRoute(
@@ -294,7 +330,7 @@ class _HomeScreenState extends State<HomeScreen>
                                 style: TextStyle(
                                   fontSize: 22,
                                   fontWeight: FontWeight.bold,
-                                  color: _textColor,
+                                  color: Colors.black87,
                                 ),
                               ),
 
@@ -336,18 +372,12 @@ class _HomeScreenState extends State<HomeScreen>
                         Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 16),
                           child: _completedSessions.isEmpty
-                              ? _emptyState(_primary)
+                              ? _emptyState()
                               : Column(
-                            children: _completedSessions
-                                .take(50)
-                                .map((s) => _sessionTile(
-                                context,
-                                s,
-                                _primary,
-                                _textColor,
-                                _cardColor
-                            ))
-                                .toList(),
+                                  children: _completedSessions
+                                      .take(50)
+                                      .map((s) => _sessionTile(context, s))
+                                      .toList(),
                                 ),
                         ),
 
@@ -365,8 +395,7 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   // ------------------------- HEADER -------------------------
-  Widget _headerHero(ThemeProvider themeProvider) {
-    final _primary = themeProvider.primaryColor;
+  Widget _headerHero() {
     return ClipRRect(
       borderRadius: const BorderRadius.only(
         bottomLeft: Radius.circular(50),
@@ -393,7 +422,7 @@ class _HomeScreenState extends State<HomeScreen>
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: themeProvider.isDarkMode ? _primary.withOpacity(0.2) : const Color(0xFFC6905B).withOpacity(0.28),
+                color: Color(0xFFC6905B).withOpacity(0.28),
                 borderRadius: BorderRadius.circular(22),
               ),
               child: Column(
@@ -415,7 +444,7 @@ class _HomeScreenState extends State<HomeScreen>
                       Expanded(
                         child: Material(
                           color: Colors.transparent,
-                          child: _motivationalBubble(themeProvider),
+                          child: _motivationalBubble(),
                         ),
                       ),
                     ],
@@ -423,12 +452,12 @@ class _HomeScreenState extends State<HomeScreen>
 
                   const SizedBox(height: 10),
 
-                  Text(
+                  const Text(
                     "Me llamo Lumi ✨",
                     style: TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
-                      color: themeProvider.textColor,
+                      color: Colors.white,
                     ),
                   ),
                 ],
@@ -441,9 +470,8 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   // --------------------- BURBUJA DE FRASE ------------------------
-  Widget _motivationalBubble(ThemeProvider themeProvider) {
+  Widget _motivationalBubble() {
     if (!_showQuote) return const SizedBox.shrink();
-    final _textColor = themeProvider.textColor;
 
     return AnimatedOpacity(
       duration: const Duration(milliseconds: 250),
@@ -468,10 +496,9 @@ class _HomeScreenState extends State<HomeScreen>
             Expanded(
               child: Text(
                 _quote,
-                style: TextStyle(
+                style: const TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.w600,
-                  color: _textColor,
                 ),
               ),
             ),
@@ -491,8 +518,6 @@ class _HomeScreenState extends State<HomeScreen>
     required IconData icon,
     required String label,
     required VoidCallback onTap,
-    required Color primaryColor,
-    required Color textColor,
   }) {
     return InkWell(
       borderRadius: BorderRadius.circular(20),
@@ -500,20 +525,20 @@ class _HomeScreenState extends State<HomeScreen>
       child: Ink(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 14),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.7),
+          color: const Color(0xFFF6EFE9),
           border: Border.all(color: Colors.black26),
           borderRadius: BorderRadius.circular(20),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, color: primaryColor),
+            Icon(icon, color: _primary),
             const SizedBox(width: 6),
             Flexible(
               child: Text(
                 label,
-                style: TextStyle(
-                    fontWeight: FontWeight.w600, fontSize: 14, color: textColor),
+                style: const TextStyle(
+                    fontWeight: FontWeight.w600, fontSize: 14),
                 overflow: TextOverflow.ellipsis,
               ),
             ),
@@ -524,38 +549,25 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   // ------------------------- ITEM DE SESIÓN -------------------------
-    Widget _sessionTile(
-        BuildContext context,
-        Sesion session,
-        Color primaryColor,
-        Color textColor,
-        Color cardColor){
+  Widget _sessionTile(BuildContext context, Sesion session) {
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
-      decoration: BoxDecoration(
-          color: cardColor,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4, offset: const Offset(0, 2))
-          ]
-      ),
       child: ListTile(
         leading: CircleAvatar(
-          backgroundColor: primaryColor.withOpacity(0.25),
+          backgroundColor: Colors.blueGrey.withOpacity(0.25),
           child:
-              Icon(Icons.access_time, color: primaryColor, size: 22),
+              const Icon(Icons.access_time, color: Colors.black54, size: 22),
         ),
         title: Text(
           session.nombreSesion,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: TextStyle(color: textColor),
         ),
         subtitle: Text(
           session.fecha.toString().substring(0, 16),
-          style: TextStyle(color: textColor.withOpacity(0.7)),
+          style: const TextStyle(color: Colors.black54),
         ),
-        trailing: Icon(Icons.chevron_right, color: textColor.withOpacity(0.7)),
+        trailing: const Icon(Icons.chevron_right),
 
         onTap: () => Navigator.push(
           context,
@@ -568,17 +580,17 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   // --------------------------- SIN SESIONES ---------------------------
-    Widget _emptyState(Color primaryColor) {
-      return Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.92),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.black12),
-        ),
-        child: Row(
-        children: [
-          Icon(Icons.hourglass_empty, color: primaryColor),
+  Widget _emptyState() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.92),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.black12),
+      ),
+      child: Row(
+        children: const [
+          Icon(Icons.hourglass_empty, color: _primary),
           SizedBox(width: 10),
           Expanded(
             child: Text('Aún no hay sesiones. Crea tu primera sesión para comenzar.'),

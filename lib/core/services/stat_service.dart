@@ -23,4 +23,17 @@ class StatService {
   static Future<void> eliminarStat(int idStat) async {
     await SupabaseService.delete(table, 'id_stat', idStat);
   }
+
+
+    // En stat_service.dart
+  static Future<void> incrementarTiempoUso(int idUsuario, int segundos) async {
+    await SupabaseService.client.rpc(
+      'increment_app_time',
+      params: {
+        'p_id_usuario': idUsuario,
+        'p_seconds': segundos,
+      },
+    );
+  }
+
 }

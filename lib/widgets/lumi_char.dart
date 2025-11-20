@@ -2,6 +2,7 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class LumiChar extends StatefulWidget {
   final double size;
@@ -31,9 +32,13 @@ class _LumiCharState extends State<LumiChar> {
   ];
 
   Future<void> _playSound() async {
-    try {
-      await audioPlayer.play(AssetSource('sounds/pop.mp3'));
-    } catch (_) {}
+    final prefs = await SharedPreferences.getInstance();
+    final sonido = prefs.getBool('sound') ?? true;
+    if (sonido) {
+      try {
+        await audioPlayer.play(AssetSource('sounds/pop.mp3'));
+      } catch (_) {}
+    }
   }
 
   void _triggerMessage() {

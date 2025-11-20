@@ -1,10 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import '../../home/home_screen.dart';
-import 'dart:convert';
-import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class PomodoroScreen extends StatefulWidget {
   const PomodoroScreen({Key? key}) : super(key: key);
@@ -45,10 +42,17 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
     });
   }
 
-  void _playSound() async {
-    // Usa un sonido corto al finalizar
-    await _player.play(AssetSource('sounds/finish.mp3')); // agrega tu archivo en assets/sounds/
+  Future<bool> _isSoundEnabled() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool('sound') ?? true; // true por defecto si no existe
   }
+
+  void _playSound() async {
+    if (await _isSoundEnabled()) {
+      await _player.play(AssetSource('sounds/alert_finish.mp3'));
+    }
+  }
+
 
   void _handlePhaseCompletion() {
     setState(() {
@@ -66,7 +70,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
         remainingTime = studyTime;
       }
     });
-    startTimer(); // inicia siguiente fase automáticamente
+    startTimer();
   }
 
   void pauseTimer() {
@@ -116,6 +120,27 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
     );
   }
 
+  Future<bool> _confirmarSalida() async {
+    final salir = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text("¿Deseas terminar tu sesión?"),
+        content: const Text("Si retrocedes, tu sesión de pomodoro finalizará."),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text("No"),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text("Sí"),
+          ),
+        ],
+      ),
+    );
+    return salir == true;
+  }
+
   @override
   void dispose() {
     _timer?.cancel();
@@ -125,117 +150,141 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: _bg,
-      appBar: AppBar(
-        backgroundColor: _bar,
-        elevation: 0,
-        centerTitle: true,
-        title: const Text("Pomodoro", style: TextStyle(color: _primary, fontWeight: FontWeight.w700)),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.info_outline, color: _primary),
-            onPressed: _showInfoDialog,
+    return WillPopScope(
+      onWillPop: _confirmarSalida,
+      child: Scaffold(
+        backgroundColor: _bg,
+        appBar: AppBar(
+          backgroundColor: _bar,
+          elevation: 0,
+          centerTitle: true,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back, color: _primary),
+            onPressed: () async {
+              final salir = await _confirmarSalida();
+              if (salir) Navigator.pop(context);
+            },
           ),
-        ],
-      ),
-      body: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const SizedBox(height: 20),
+          title: const Text("Pomodoro", style: TextStyle(color: _primary, fontWeight: FontWeight.w700)),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.info_outline, color: _primary),
+              onPressed: _showInfoDialog,
+            ),
+          ],
+        ),
+        body: GestureDetector(
+          // Captura taps fuera de botones:
+          behavior: HitTestBehavior.opaque,
+          onTap: () {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text("No puedes editar el tiempo del pomodoro, concéntrate"),
+                duration: Duration(seconds: 2),
+              ),
+            );
+          },
+          child: AbsorbPointer(
+            absorbing: false, // Permite usar los botones internos normalmente
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const SizedBox(height: 20),
 
-          // Temporizador
-          Text(
-            _formatTime(remainingTime),
-            style: const TextStyle(fontSize: 74, fontWeight: FontWeight.bold, color: _primary),
+                // Temporizador
+                Text(
+                  _formatTime(remainingTime),
+                  style: const TextStyle(fontSize: 74, fontWeight: FontWeight.bold, color: _primary),
+                ),
+
+                const SizedBox(height: 10),
+
+                // Fase actual
+                Text(
+                  phase,
+                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w600, color: _primary),
+                ),
+
+                const SizedBox(height: 40),
+
+                // Estado (texto simple, no botón)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      _infoText("Foco", "$completedCycles/4 ciclos", Icons.access_time),
+                      const SizedBox(width: 20),
+                      _infoText("Modo", phase, Icons.track_changes),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 60),
+
+                // Botones inferiores (centrados)
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _actionButton("Enfoque", () {
+                      setState(() {
+                        phase = "Enfoque";
+                        remainingTime = studyTime;
+                      });
+                    }),
+                    const SizedBox(width: 10),
+                    _actionButton("Desc. Corto", () {
+                      setState(() {
+                        phase = "Descanso Corto";
+                        remainingTime = shortBreak;
+                      });
+                    }),
+                    const SizedBox(width: 10),
+                    _actionButton("Desc. Largo", () {
+                      setState(() {
+                        phase = "Descanso Largo";
+                        remainingTime = longBreak;
+                      });
+                    }),
+                  ],
+                ),
+
+                const SizedBox(height: 40),
+
+                // Controles del temporizador
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    if (!isRunning)
+                      _controlButton(Icons.play_arrow, "Iniciar", _primary, startTimer)
+                    else
+                      _controlButton(Icons.pause, "Pausar", Colors.redAccent, pauseTimer),
+                    const SizedBox(width: 16),
+                    _controlButton(Icons.refresh, "Reiniciar", _bar, resetTimer),
+                  ],
+                ),
+              ],
+            ),
           ),
-
-          const SizedBox(height: 10),
-
-          // Fase actual
-          Text(
-            phase,
-            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w600, color: _primary),
-          ),
-
-          const SizedBox(height: 40),
-
-          // Tarjetas de estado
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              _infoCard("Foco", "$completedCycles/4 ciclos", Icons.access_time),
-              const SizedBox(width: 20),
-              _infoCard("Modo", phase, Icons.track_changes),
-            ],
-          ),
-
-          const SizedBox(height: 60),
-
-          // Botones inferiores (centrados)
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              _actionButton("Enfoque", () {
-                setState(() {
-                  phase = "Enfoque";
-                  remainingTime = studyTime;
-                });
-              }),
-              const SizedBox(width: 10),
-              _actionButton("Desc. Corto", () {
-                setState(() {
-                  phase = "Descanso Corto";
-                  remainingTime = shortBreak;
-                });
-              }),
-              const SizedBox(width: 10),
-              _actionButton("Desc. Largo", () {
-                setState(() {
-                  phase = "Descanso Largo";
-                  remainingTime = longBreak;
-                });
-              }),
-            ],
-          ),
-
-          const SizedBox(height: 40),
-
-          // Controles del temporizador
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              if (!isRunning)
-                _controlButton(Icons.play_arrow, "Iniciar", _primary, startTimer)
-              else
-                _controlButton(Icons.pause, "Pausar", Colors.redAccent, pauseTimer),
-              const SizedBox(width: 16),
-              _controlButton(Icons.refresh, "Reiniciar", _bar, resetTimer),
-            ],
-          ),
-        ],
+        ),
       ),
     );
   }
 
-  Widget _infoCard(String title, String value, IconData icon) {
-    return Container(
-      width: 150,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.6),
-        border: Border.all(color: Colors.black12),
-        borderRadius: BorderRadius.circular(18),
-      ),
-      child: Column(
-        children: [
-          Icon(icon, color: _primary, size: 26),
-          const SizedBox(height: 6),
-          Text(title, style: const TextStyle(color: _primary, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 2),
-          Text(value, style: const TextStyle(color: _primary, fontSize: 14)),
-        ],
-      ),
+  Widget _infoText(String title, String value, IconData icon) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, color: _primary, size: 22),
+        const SizedBox(width: 6),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title, style: const TextStyle(color: _primary, fontWeight: FontWeight.bold)),
+            Text(value, style: const TextStyle(color: _primary, fontSize: 14)),
+          ],
+        ),
+      ],
     );
   }
 
