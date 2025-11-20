@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../metodos/pomodoro/pomodoro_screen.dart';
+import '../metodos/flashcards/flashcards_screen.dart';
+import '../metodos/mentalmaps/mentalmaps.screen.dart';
 
 class SesionRapidaScreen extends StatefulWidget {
   const SesionRapidaScreen({super.key});
@@ -16,8 +18,8 @@ class _SesionRapidaScreenState extends State<SesionRapidaScreen> {
 
   final List<String> _methods = [
     'Pomodoro',
-    'Método 2',
-    'Método 3',
+    'Flashcards',
+    'Mapa Mental',
   ];
 
   @override
@@ -104,22 +106,31 @@ class _SesionRapidaScreenState extends State<SesionRapidaScreen> {
                         width: 140,
                         height: 48,
                         child: ElevatedButton.icon(
-                          onPressed: () {
-                            if (_selectedMethod == 'Pomodoro') {
-                              Navigator.pushReplacement(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => const PomodoroScreen(),
-                                ),
-                              );
-                            } else {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text('Método "$_selectedMethod" no implementado aún'),
-                                ),
-                              );
-                            }
-                          },
+                        onPressed: () {
+                          if (_selectedMethod == 'Pomodoro') {
+                            Navigator.pushReplacement(
+                              context,
+                              MaterialPageRoute(builder: (_) => const PomodoroScreen()),
+                            );
+                          } else if (_selectedMethod == 'Flashcards') {
+                            Navigator.pushReplacement(
+                              context,
+                              MaterialPageRoute(builder: (_) => const FlashcardsScreen()),
+                            );
+                          } else if (_selectedMethod == 'Mapa Mental') {
+                            Navigator.pushReplacement(
+                              context,
+                              MaterialPageRoute(builder: (_) => const MentalMapsScreen()),
+                            );
+                          } else {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('Método "$_selectedMethod" no implementado aún'),
+                              ),
+                            );
+                          }
+                        },
+
                           icon: const Icon(Icons.play_circle_fill, size: 20),
                           label: const Text('Sí'),
                           style: ElevatedButton.styleFrom(

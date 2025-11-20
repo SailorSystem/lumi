@@ -22,6 +22,7 @@ dependencies:
   cupertino_icons: ^1.0.8
   audioplayers: ^5.1.0  # For custom sounds if needed
   supabase_flutter: ^2.5.0
+  mind_map: ^1.0.5
 
 
 dev_dependencies:
