@@ -20,8 +20,8 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   // Paleta
   //static const _bg = Color(0xFFD9CBBE);
-  static const _bar = Color(0xFFB49D87);
-  static const _primary = Color(0xFF2C4459);
+  //static const _bar = Color(0xFFB49D87);
+  //static const _primary = Color(0xFF2C4459);
 
   String _userName = 'Usuario';
   //bool _isDarkMode = false;
@@ -97,10 +97,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context);
-    final _isDarkMode = themeProvider.isDarkMode;
-    final _primaryColor = themeProvider.primaryColor;
-    final _cardColor = themeProvider.cardColor;
-    final _textColor = themeProvider.textColor;
+    final isDarkMode = themeProvider.isDarkMode;
+    final isDark = themeProvider.isDarkMode;
+    final cardColor = themeProvider.cardColor;
+    final textColor = themeProvider.textColor;
+    final primaryColor = themeProvider.primaryColor;
+    final appBarColor = themeProvider.appBarColor;
+
 
     return WillPopScope(
       onWillPop: () async {
@@ -110,16 +113,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
       child: Scaffold(
         backgroundColor: themeProvider.backgroundColor,
         appBar: AppBar(
-          backgroundColor: themeProvider.appBarColor,
-          title: const Text('Ajustes'),
           centerTitle: true,
           elevation: 0,
-          foregroundColor: _primary,
           leading: IconButton(
-            icon: const Icon(Icons.arrow_back),
+            icon: Icon(Icons.arrow_back, color: primaryColor),
             onPressed: () => Navigator.pop(context, _changedForHome),
           ),
+          title: const Text('Ajustes'),
+          titleTextStyle: TextStyle(
+            color: primaryColor,
+            fontWeight: FontWeight.bold,
+            fontSize: 22,
+          ),
+          flexibleSpace: Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: isDark
+                    ? [
+                        const Color(0xFF212C36),
+                        const Color(0xFF313940),
+                        themeProvider.backgroundColor,
+                      ]
+                    : [
+                        const Color(0xFFB6C9D6),
+                        const Color(0xFFE6DACA),
+                        themeProvider.backgroundColor,
+                      ],
+                stops: const [0.0, 0.75, 1.0],
+              ),
+            ),
+          ),
         ),
+
         body: ListView(
           padding: const EdgeInsets.symmetric(vertical: 16),
           children: [
@@ -129,12 +156,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16.0),
               child: Card(
-                color: _cardColor,
+                color: cardColor,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 elevation: 2,
                 child: ListTile(
                   leading: CircleAvatar(
-                      backgroundColor: _primaryColor,
+                    backgroundColor: primaryColor,
                     child: Text(
                       _userName.isNotEmpty ? _userName[0].toUpperCase() : 'U',
                       style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
@@ -142,11 +169,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   title: Text(
                     _userName,
-                    style: TextStyle(color: _textColor, fontWeight: FontWeight.w700),
+                    style: TextStyle(
+                      color: textColor,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                   trailing: TextButton(
                     style: TextButton.styleFrom(
-                      foregroundColor: _bar,
+                      foregroundColor: primaryColor,
                       textStyle: const TextStyle(fontWeight: FontWeight.w600),
                     ),
                     child: const Text('Editar...'),
@@ -155,8 +185,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         context: context,
                         builder: (context) => _NameEditDialog(
                           initialName: _userName,
-                          primary: _primary,
-                          bar: _bar,
+                          primary: primaryColor,
+                          bar: appBarColor,
                         ),
                       );
                       if (result != null) await _updateName(result);
@@ -171,17 +201,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16.0),
               child: Card(
-                color: _cardColor,
+                color: cardColor,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 elevation: 2,
                 child: Column(
                   children: [
-                    // Modo oscuro: avisar y revertir
                     SwitchListTile(
-                      secondary: Icon(Icons.dark_mode, color: _primaryColor),
-                      title: Text('Modo Oscuro', style: TextStyle(color: _textColor, fontWeight: FontWeight.w600)),
-                      value: _isDarkMode,
-                      activeColor: _primary,
+                      secondary: Icon(Icons.dark_mode, color: primaryColor),
+                      title: Text('Modo Oscuro',
+                          style: TextStyle(color: textColor, fontWeight: FontWeight.w600)),
+                      value: isDarkMode,
+                      activeColor: primaryColor,
                       onChanged: (value) async {
                         await themeProvider.toggleTheme(value);
                         _changedForHome = true;
@@ -189,24 +219,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                     const Divider(height: 1),
                     SwitchListTile(
-                      secondary: Icon(Icons.notifications, color: _primaryColor),
-                      title: Text('Notificaciones', style: TextStyle(color: _textColor, fontWeight: FontWeight.w600)),
+                      secondary: Icon(Icons.notifications, color: primaryColor),
+                      title: Text('Notificaciones',
+                          style: TextStyle(color: textColor, fontWeight: FontWeight.w600)),
                       value: _notifications,
-                      activeColor: _primaryColor,
+                      activeColor: primaryColor,
                       onChanged: (value) => _updateConfig('notificaciones_activadas', value),
                     ),
                     const Divider(height: 1),
                     SwitchListTile(
-                      secondary: Icon(Icons.volume_up, color: _primaryColor),
-                      title: Text('Sonido', style: TextStyle(color: _textColor, fontWeight: FontWeight.w600)),
+                      secondary: Icon(Icons.volume_up, color: primaryColor),
+                      title: Text('Sonido',
+                          style: TextStyle(color: textColor, fontWeight: FontWeight.w600)),
                       value: _sound,
-                      activeColor: _primary,
+                      activeColor: primaryColor,
                       onChanged: (value) => _updateConfig('sonido', value),
                     ),
                   ],
                 ),
               ),
             ),
+
             const SizedBox(height: 24),
 
             // Acciones
@@ -221,7 +254,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       );
                     },
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: _primary,
+                      backgroundColor: primaryColor,
                       foregroundColor: Colors.white,
                       minimumSize: const Size.fromHeight(48),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -256,8 +289,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       );
                     },
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: _primary,
-                      side: const BorderSide(color: _bar),
+                      foregroundColor: primaryColor,
+                      side:  BorderSide(color: appBarColor),
                       minimumSize: const Size.fromHeight(48),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                     ),

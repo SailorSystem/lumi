@@ -114,9 +114,30 @@ class _StatsScreenState extends State<StatsScreen> {
     return Scaffold(
       backgroundColor: _bg,
       appBar: AppBar(
-        title: const Text('Estadísticas'),
-        backgroundColor: _bar,
+        elevation: 0,
         centerTitle: true,
+        title: const Text(
+          'Estadísticas',
+          style: TextStyle(
+            color: _primary,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        // Gradiente igual que Home, hasta el 75%
+        flexibleSpace: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Color(0xFFB6C9D6), // mar
+                Color(0xFFE6DACA), // arena clara
+                Color(0xFFD9CBBE), // arena suave
+              ],
+              stops: [0.0, 0.75, 1.0],
+            ),
+          ),
+        ),
       ),
       body: RefreshIndicator(
         onRefresh: _refresh,

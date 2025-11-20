@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:provider/provider.dart';
 
 import 'features/home/home_screen.dart';
+import 'features/home/splash_screen.dart';
 import 'core/providers/theme_provider.dart';
 
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
@@ -14,7 +15,6 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   tz.initializeTimeZones();
 
-  // 🔥 Supabase DEBE inicializarse ANTES de usar cualquier servicio
   await Supabase.initialize(
     url: 'https://poxheykxpublcwwodzpz.supabase.co',
     anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBveGhleWt4cHVibGN3d29kenB6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI3NzE4MjcsImV4cCI6MjA3ODM0NzgyN30.DZ2L7TxLWCPW65KNk4cHWol3vtipbladCG28D3oPros',
@@ -24,12 +24,12 @@ Future<void> main() async {
   const initSettings = InitializationSettings(android: androidInit);
   await flutterLocalNotificationsPlugin.initialize(initSettings);
 
-  final themeProvider_instance = ThemeProvider();
-  await themeProvider_instance.initialize();
+  final themeProvider = ThemeProvider();
+  await themeProvider.initialize();
 
   runApp(
     ChangeNotifierProvider.value(
-      value: themeProvider_instance,
+      value: themeProvider,
       child: const MyApp(),
     ),
   );
@@ -40,39 +40,43 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Escuchar cambios en el ThemeProvider
     final themeProvider = Provider.of<ThemeProvider>(context);
-
-    // lib/main.dart (Fragmento corregido dentro de MyApp)
 
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Lumi',
+      themeMode: themeProvider.isDarkMode ? ThemeMode.dark : ThemeMode.light,
       theme: ThemeData(
-          brightness: themeProvider.isDarkMode ? Brightness.dark : Brightness.light,
-
-          scaffoldBackgroundColor: themeProvider.backgroundColor,
-
-          colorScheme: ColorScheme(
-            brightness: themeProvider.isDarkMode ? Brightness.dark : Brightness.light,
-            primary: themeProvider.primaryColor,
-            onPrimary: Colors.white,
-            secondary: themeProvider.appBarColor,
-            onSecondary: themeProvider.textColor,
-            surface: themeProvider.cardColor,
-            onSurface: themeProvider.textColor,
-            background: themeProvider.backgroundColor,
-            onBackground: themeProvider.textColor,
-            error: Colors.red,
-            onError: Colors.white,
-          ),
-
-          appBarTheme: AppBarTheme(
-            backgroundColor: themeProvider.appBarColor,
-            foregroundColor: themeProvider.textColor,
-          )
+        brightness: Brightness.light,
+        scaffoldBackgroundColor: ThemeProvider.lightBg,
+        primaryColor: ThemeProvider.lightPrimary,
+        appBarTheme: const AppBarTheme(
+          backgroundColor: ThemeProvider.lightBar,
+          foregroundColor: ThemeProvider.lightPrimary,
+        ),
+        cardColor: Colors.white,
+        colorScheme: const ColorScheme.light(
+          primary: ThemeProvider.lightPrimary,
+          secondary: ThemeProvider.lightBar,
+          background: ThemeProvider.lightBg,
+        ),
       ),
-      home: const HomeScreen(),
+      darkTheme: ThemeData(
+        brightness: Brightness.dark,
+        scaffoldBackgroundColor: ThemeProvider.darkBg,
+        primaryColor: ThemeProvider.darkPrimary,
+        appBarTheme: const AppBarTheme(
+          backgroundColor: ThemeProvider.darkBar,
+          foregroundColor: ThemeProvider.darkPrimary,
+        ),
+        cardColor: Color(0xFF232323),
+        colorScheme: const ColorScheme.dark(
+          primary: ThemeProvider.darkPrimary,
+          secondary: ThemeProvider.darkBar,
+          background: ThemeProvider.darkBg,
+        ),
+      ),
+      home: const SplashScreen(),
     );
   }
 }

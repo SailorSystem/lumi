@@ -481,17 +481,35 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
       child: Scaffold(
         backgroundColor: _bg,
         appBar: AppBar(
-          backgroundColor: _bar,
           elevation: 0,
           centerTitle: true,
-          title: const Text("Flashcards", style: TextStyle(color: _primary, fontWeight: FontWeight.bold)),
+          title: const Text(
+            "Flashcards",
+            style: TextStyle(color: _primary, fontWeight: FontWeight.bold),
+          ),
           actions: [
             IconButton(
               icon: const Icon(Icons.info_outline, color: _primary),
               onPressed: _showInfoDialog,
             ),
           ],
+          // Gradiente vertical hasta el 75%, igual que Home
+          flexibleSpace: Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Color(0xFFB6C9D6), // mar
+                  Color(0xFFE6DACA), // arena clara
+                  Color(0xFFD9CBBE), // arena suave
+                ],
+                stops: [0.0, 0.75, 1.0],
+              ),
+            ),
+          ),
         ),
+
         body: _isResting
             ? _restingView()
             : _isStudying

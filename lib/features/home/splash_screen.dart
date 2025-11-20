@@ -23,12 +23,39 @@ class _SplashScreenState extends State<SplashScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final bgColor = const Color(0xFFD9CBBE); // Usa el de tu app o el que prefieras
+
     return Scaffold(
-      backgroundColor: Colors.white,
-      body: SizedBox.expand(
-        child: Image.asset(
-          'assets/images/lumi.jpg',
-          fit: BoxFit.cover,
+      backgroundColor: bgColor,
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            // Imagen del personaje, centrada y en círculo
+            CircleAvatar(
+              radius: 60,
+              backgroundImage: AssetImage('assets/images/lumi.jpg'), // Usa png si tienes, mejor transparencia
+              backgroundColor: Colors.transparent,
+            ),
+            const SizedBox(height: 30),
+            // Nombre de Lumi
+            const Text(
+              "Lumi",
+              style: TextStyle(
+                fontFamily: "Nunito", // O la fuente principal de tu app
+                fontSize: 38,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF2C4459),
+                letterSpacing: 2
+              ),
+            ),
+            const SizedBox(height: 20),
+            // Círculo de carga animado
+            const CircularProgressIndicator(
+              color: Color(0xFF2C4459),
+              strokeWidth: 4.5,
+            ),
+          ],
         ),
       ),
     );

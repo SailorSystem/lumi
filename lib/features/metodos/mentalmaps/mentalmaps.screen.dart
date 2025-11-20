@@ -237,10 +237,12 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
     return Scaffold(
       backgroundColor: _bg,
       appBar: AppBar(
-        backgroundColor: _bar,
-        title: const Text('Mapa Mental', style: TextStyle(color: _primary, fontWeight: FontWeight.bold)),
         elevation: 0,
         centerTitle: true,
+        title: const Text(
+          'Mapa Mental',
+          style: TextStyle(color: _primary, fontWeight: FontWeight.bold),
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.info_outline, color: _primary),
@@ -253,7 +255,23 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
               onPressed: _createRootNode,
             ),
         ],
+        // Gradiente igual que Home, hasta el 75%
+        flexibleSpace: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Color(0xFFB6C9D6), // mar
+                Color(0xFFE6DACA), // arena clara
+                Color(0xFFD9CBBE), // arena suave
+              ],
+              stops: [0.0, 0.75, 1.0],
+            ),
+          ),
+        ),
       ),
+
       body: Container(
         width: double.infinity,
         color: _bg,

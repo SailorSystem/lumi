@@ -1,11 +1,15 @@
 import 'dart:convert';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'home_screen.dart';
 import '../../core/models/sesion.dart';
+import '../../core/models/tema.dart';
+import '../../core/services/tema_service.dart';
 import '../../core/services/sesion_service.dart';
+import '../../core/providers/theme_provider.dart';
 
 class CrearNuevaSesionScreen extends StatefulWidget {
   const CrearNuevaSesionScreen({super.key});
@@ -14,10 +18,6 @@ class CrearNuevaSesionScreen extends StatefulWidget {
 }
 
 class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
-  static const bg = Color(0xFFD9CBBE);
-  static const appbar = Color(0xFFB49D87);
-  static const primary = Color(0xFF2C4459);
-
   final _formKey = GlobalKey<FormState>();
   final _titleController = TextEditingController();
 
@@ -44,6 +44,13 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
     _titleController.dispose();
     super.dispose();
   }
+
+  final List<Map<String, dynamic>> _metodos = [
+    {'nombre': 'Pomodoro', 'icono': Icons.timelapse},
+    {'nombre': 'Flashcards', 'icono': Icons.style},
+    {'nombre': 'Mapa Mental', 'icono': Icons.account_tree},
+    // Puedes agregar más métodos aquí...
+  ];
 
   // --- LÓGICA DE MATERIAS ACTUALIZADA ---
 
@@ -109,6 +116,7 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
   Future<void> _saveSession() async {
     if (!_formKey.currentState!.validate()) return;
 
+    // Obtén el usuario actual (te aseguras arriba que userId != null)
     final prefs = await SharedPreferences.getInstance();
     final userId = prefs.getInt('user_id');
 
@@ -128,12 +136,26 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
     // Intentaremos mapear materia a id_tema si es numérico; si no, lo dejamos null
     int? idTema;
     if (_materiaSel != null) {
-      final mid = _materiaSel!['id'];
-      if (mid is int) idTema = mid;
-      else if (mid is String) {
-        final parsed = int.tryParse(mid);
-        if (parsed != null) idTema = parsed;
-        // si no es numérico, dejamos null (puedes guardar materia aparte)
+      var mid = _materiaSel!['id'];
+      if (mid is int) {
+        idTema = mid;
+      } else {
+        // Nuevo tema: crea primero en la base, pasando el nombre como "titulo", el color en string, y el usuario asociado
+        final nuevoTema = await TemaService.crearTema(
+          Tema(
+            titulo: _materiaSel!['nombre'] as String,
+            colorHex: (_materiaSel!['color'] as int).toRadixString(16),
+            idUsuario: userId!, // <-- ESTA ES LA LÍNEA CRÍTICA
+          ),
+        );
+        if (nuevoTema == null || nuevoTema.idTema == null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('No se pudo crear la materia en la base.')),
+          );
+          return;
+        }
+        idTema = nuevoTema.idTema!;
+        _materiaSel!['id'] = idTema; // Actualiza para futuras sesiones
       }
     }
 
@@ -220,15 +242,22 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
     String? value,
     VoidCallback? onTap,
   }) {
+    final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
+    final cardColor  = themeProvider.cardColor;
+    final textColor  = themeProvider.textColor;
+    final primary    = themeProvider.primaryColor;
+
     return InkWell(
       borderRadius: BorderRadius.circular(16),
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
         decoration: BoxDecoration(
-          color: const Color(0xFFF6EFE9),
+          color: cardColor,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.black26),
+          border: Border.all(
+            color: themeProvider.isDarkMode ? Colors.grey[700]! : Colors.black26,
+          ),
           boxShadow: const [BoxShadow(blurRadius: 4, offset: Offset(0,2), color: Colors.black12)],
         ),
         child: Row(
@@ -239,21 +268,25 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(label, style: const TextStyle(fontSize: 12, color: Colors.black54)),
-                  const SizedBox(height: 2),
-                  Text(value ?? 'Seleccionar', style: const TextStyle(fontSize: 16)),
+                  Text(label, style: TextStyle(fontSize: 12, color: textColor.withOpacity(0.7))),
+                  Text(value ?? 'Seleccionar', style: TextStyle(fontSize: 16, color: textColor)),
                 ],
               ),
             ),
-            const Icon(Icons.arrow_drop_down),
+            Icon(Icons.arrow_drop_down, color: textColor),
           ],
         ),
       ),
     );
   }
 
+
   // Widget renombrado de _temaButton
   Widget _materiaButton() {
+    final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
+    final cardColor  = themeProvider.cardColor;
+    final textColor  = themeProvider.textColor;
+    final primary    = themeProvider.primaryColor;
     final isSelected = _materiaSel != null;
     final color = isSelected ? Color(_materiaSel!['color'] as int) : Colors.black26;
     // Texto cambiado a "Elegir materia"
@@ -263,7 +296,7 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
       onTap: () async {
         final picked = await showModalBottomSheet<Map<String, dynamic>>(
           context: context,
-          backgroundColor: const Color(0xFFF6EFE9),
+          backgroundColor: cardColor,
           // LÍNEA CORREGIDA (1 de 4)
           shape: const RoundedRectangleBorder(
               borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
@@ -295,7 +328,7 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
         decoration: BoxDecoration(
-          color: const Color(0xFFF6EFE9),
+          color: cardColor,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: Colors.black26),
           boxShadow: const [BoxShadow(blurRadius: 4, offset: Offset(0,2), color: Colors.black12)],
@@ -314,12 +347,16 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
 
   // Renombrado de _openTemaSheet
   Future<void> _openMateriaSheet() async {
+    final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
+    final cardColor  = themeProvider.cardColor;
+    final textColor  = themeProvider.textColor;
+    final primary    = themeProvider.primaryColor;
     final nameCtrl = TextEditingController();
     Color picked = _palette.first;
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: const Color(0xFFF6EFE9),
+      backgroundColor: cardColor,
       // LÍNEA CORREGIDA (2 de 4)
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
@@ -407,6 +444,10 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
   }
 
   Future<void> _openDurationSheet() async {
+    final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
+    final cardColor  = themeProvider.cardColor;
+    final textColor  = themeProvider.textColor;
+    final primary    = themeProvider.primaryColor;
     int h = _dur.inHours.clamp(0, 23);
     int m = (_dur.inMinutes % 60).clamp(0, 59);
     int s = (_dur.inSeconds % 60).clamp(0, 59);
@@ -415,7 +456,7 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
     final sc = FixedExtentScrollController(initialItem: s);
     await showModalBottomSheet(
       context: context,
-      backgroundColor: const Color(0xFFF6EFE9),
+      backgroundColor: cardColor,
       // LÍNEA CORREGIDA (3 de 4)
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
@@ -430,21 +471,21 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
                 height: 160,
                 child: Row(
                   children: [
-                    _colLabel('HH'),
+                    _colLabel(context, 'HH'),
                     Expanded(child: CupertinoPicker(
                       scrollController: hc,
                       itemExtent: 36,
                       onSelectedItemChanged: (v) => h = v,
                       children: List.generate(24, (i) => Center(child: Text(_two(i)))),
                     )),
-                    _colLabel('MM'),
+                    _colLabel(context, 'MM'),
                     Expanded(child: CupertinoPicker(
                       scrollController: mc,
                       itemExtent: 36,
                       onSelectedItemChanged: (v) => m = v,
                       children: List.generate(60, (i) => Center(child: Text(_two(i)))),
                     )),
-                    _colLabel('SS'),
+                    _colLabel(context, 'SS'),
                     Expanded(child: CupertinoPicker(
                       scrollController: sc,
                       itemExtent: 36,
@@ -493,16 +534,64 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
     );
   }
 
-  static Widget _colLabel(String t) =>
-      Padding(padding: const EdgeInsets.symmetric(horizontal: 6), child: Text(t, style: const TextStyle(color: Colors.black54)));
+  Widget _colLabel(BuildContext context, String t) {
+    final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
+    final textColor = themeProvider.textColor;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      child: Text(
+        t,
+        style: TextStyle(color: textColor.withOpacity(0.7)),
+      ),
+    );
+  }
+
 
   static String _two(int n) => n.toString().padLeft(2, '0');
 
   @override
   Widget build(BuildContext context) {
+    final themeProvider = Provider.of<ThemeProvider>(context);
+    final bg         = themeProvider.backgroundColor;
+    final appBarCol  = themeProvider.appBarColor;
+    final primary    = themeProvider.primaryColor;
+    final cardColor  = themeProvider.cardColor;
+    final textColor  = themeProvider.textColor;
+
     return Scaffold(
       backgroundColor: bg,
-      appBar: AppBar(backgroundColor: appbar, title: const Text('Crear Nueva Sesión')),
+      appBar: AppBar(
+        elevation: 0,
+        centerTitle: true,
+        title: Text(
+          'Crear Nueva Sesión',
+          style: TextStyle(
+            color: primary,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: themeProvider.isDarkMode
+                ? [
+                    const Color(0xFF212C36),
+                    const Color(0xFF313940),
+                    bg,
+                  ]
+                : [
+                    const Color(0xFFB6C9D6),
+                    const Color(0xFFE6DACA),
+                    bg,
+                  ],
+              stops: const [0.0, 0.75, 1.0],
+            ),
+          ),
+        ),
+      ),
+
       body: Form(
         key: _formKey,
         child: ListView(
@@ -514,7 +603,7 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
                 labelText: 'Título',
                 hintText: 'Escribe un título',
                 filled: true,
-                fillColor: const Color(0xFFEFE3D8),
+                fillColor: cardColor,
                 contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(14),
@@ -526,7 +615,7 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(14),
-                  borderSide: const BorderSide(color: primary, width: 2),
+                  borderSide: BorderSide(color: primary, width: 2),
                 ),
                 labelStyle: const TextStyle(color: Color(0xFF7C6F66)),
               ),
@@ -543,7 +632,7 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         // Texto cambiado
-                        const Text('Materia', style: TextStyle(fontSize: 12, color: Colors.black87)),
+                        Text('Materia', style: TextStyle(fontSize: 12, color: textColor )),
                         const SizedBox(height: 6),
                         _materiaButton(), // Función renombrada
                         if (state.hasError)
@@ -562,7 +651,7 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
                     heroTag: 'addMateriaFab', // HeroTag cambiado
                     backgroundColor: primary,
                     onPressed: _openMateriaSheet, // Función renombrada
-                    child: const Icon(Icons.add, color: Colors.white),
+                    child: Icon(Icons.add, color: cardColor),
                   ),
                 ),
               ],
@@ -573,21 +662,24 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
               label: 'Método',
               value: _selectedMetodo,
               onTap: () async {
+                final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
+                final cardColor  = themeProvider.cardColor;
+                final textColor  = themeProvider.textColor;
+
                 final v = await showModalBottomSheet<String>(
                   context: context,
-                  backgroundColor: const Color(0xFFF6EFE9),
-                  // LÍNEA CORREGIDA (4 de 4)
+                  backgroundColor: cardColor,
                   shape: const RoundedRectangleBorder(
-                      borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
                   builder: (_) => SafeArea(
-                    child: Column(mainAxisSize: MainAxisSize.min, children: [
-                      ListTile(
-                        leading: const Icon(Icons.timelapse),
-                        title: const Text('Pomodoro'),
-                        onTap: () => Navigator.pop(context, 'Pomodoro'),
-                      ),
-                      // Aquí puedes agregar más métodos si quieres
-                    ]),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: _metodos.map((metodo) => ListTile(
+                        leading: Icon(metodo['icono'], color: textColor),
+                        title: Text(metodo['nombre'], style: TextStyle(color: textColor)),
+                        onTap: () => Navigator.pop(context, metodo['nombre']),
+                      )).toList(),
+                    ),
                   ),
                 );
                 if (v != null) setState(() => _selectedMetodo = v);

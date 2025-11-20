@@ -155,7 +155,6 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
       child: Scaffold(
         backgroundColor: _bg,
         appBar: AppBar(
-          backgroundColor: _bar,
           elevation: 0,
           centerTitle: true,
           leading: IconButton(
@@ -165,14 +164,36 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
               if (salir) Navigator.pop(context);
             },
           ),
-          title: const Text("Pomodoro", style: TextStyle(color: _primary, fontWeight: FontWeight.w700)),
+          title: const Text(
+            "Pomodoro",
+            style: TextStyle(
+              color: _primary,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
           actions: [
             IconButton(
               icon: const Icon(Icons.info_outline, color: _primary),
               onPressed: _showInfoDialog,
             ),
           ],
+          // GRADIENTE COMO EN HOME:
+          flexibleSpace: Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Color(0xFFB6C9D6), // mar
+                  Color(0xFFE6DACA), // arena clara
+                  Color(0xFFD9CBBE), // arena suave
+                ],
+                stops: [0.0, 0.75, 1.0],
+              ),
+            ),
+          ),
         ),
+
         body: GestureDetector(
           // Captura taps fuera de botones:
           behavior: HitTestBehavior.opaque,

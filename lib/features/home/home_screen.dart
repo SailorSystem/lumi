@@ -6,6 +6,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:provider/provider.dart';
 
 import 'crear_sesion_screen.dart';
 import 'start_screen.dart';
@@ -20,6 +21,7 @@ import '../../core/models/sesion.dart';
 import '../../core/services/sesion_service.dart';
 import '../../core/services/usuario_service.dart';
 import '../../core/services/stat_service.dart';
+import '../../core/providers/theme_provider.dart';
 import 'firstre_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -224,49 +226,71 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   @override
   Widget build(BuildContext context) {
+    final themeProvider = Provider.of<ThemeProvider>(context);
+    final theme = Theme.of(context);
     final w = MediaQuery.of(context).size.width;
     final maxBody = math.min(w * 0.92, 720.0);
 
     return Scaffold(
-      backgroundColor: _bg,
+      backgroundColor: themeProvider.backgroundColor,
       appBar: AppBar(
-        backgroundColor: Colors.transparent,
         elevation: 0,
         titleSpacing: 16,
+        centerTitle: false,
+        backgroundColor: Colors.transparent,
+        automaticallyImplyLeading: false,
         title: Text(
           'Hola $_userName',
-          style: const TextStyle(
+          style: TextStyle(
             fontWeight: FontWeight.w700,
-            color: _primary,
+            color: themeProvider.primaryColor,
           ),
         ),
-        automaticallyImplyLeading: false,
         actions: [
           IconButton(
-            icon: const Icon(Icons.bar_chart, color: _primary),
+            icon: Icon(Icons.bar_chart, color: themeProvider.primaryColor),
             onPressed: () => Navigator.push(context,
                 MaterialPageRoute(builder: (_) => const StatsScreen())),
           ),
           IconButton(
-            icon: const Icon(Icons.settings),
+            icon: Icon(Icons.settings, color: themeProvider.primaryColor),
             onPressed: () async {
-            if (_userId == null) {
-              print("❌ Usuario NULL al abrir ajustes");
-              return;
-            }
-
-            final refresh = await Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => SettingsScreen(idUsuario: _userId!),
-              ),
-            );
+              if (_userId == null) {
+                print("❌ Usuario NULL al abrir ajustes");
+                return;
+              }
+              final refresh = await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => SettingsScreen(idUsuario: _userId!),
+                ),
+              );
               if (refresh == true) _loadUserData();
             },
-          )
-
+          ),
         ],
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: themeProvider.isDarkMode
+                  ? [
+                      const Color(0xFF212C36),
+                      const Color(0xFF313940),
+                      themeProvider.backgroundColor,
+                    ]
+                  : [
+                      const Color(0xFFB6C9D6),
+                      const Color(0xFFE6DACA),
+                      themeProvider.backgroundColor,
+                    ],
+              stops: const [0.0, 0.35, 1.0],
+            ),
+          ),
+        ),
       ),
+
       extendBodyBehindAppBar: true,
 
       body: Stack(
@@ -330,7 +354,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                                 style: TextStyle(
                                   fontSize: 22,
                                   fontWeight: FontWeight.bold,
-                                  color: Colors.black87,
+                                  color: Theme.of(context).textTheme.bodyLarge?.color,
                                 ),
                               ),
 
@@ -345,22 +369,38 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                                     color: Colors.teal.shade100.withOpacity(0.4),
                                     borderRadius: BorderRadius.circular(12),
                                   ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: const [
-                                      Icon(Icons.filter_alt, size: 18, color: Colors.teal),
-                                      SizedBox(width: 6),
-                                      Text(
-                                        "Filtrar",
-                                        style: TextStyle(
-                                          color: Colors.teal,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                    ],
+                                  child: DropdownButtonHideUnderline(
+                                    child: DropdownButton<String>(
+                                      value: _selectedFilter,
+                                      icon: const Icon(Icons.filter_alt, color: Colors.teal),
+                                      items: [
+                                        "Más reciente",
+                                        "Más antiguo",
+                                        "A-Z",
+                                        "Z-A"
+                                      ].map((filter) {
+                                        return DropdownMenuItem<String>(
+                                          value: filter,
+                                          child: Text(
+                                            filter,
+                                            style: const TextStyle(
+                                              color: Colors.teal,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        );
+                                      }).toList(),
+                                      onChanged: (value) {
+                                        setState(() {
+                                          _selectedFilter = value!;
+                                          _applyFilter();
+                                        });
+                                      },
+                                    ),
                                   ),
                                 ),
                               ),
+
                               const SizedBox(height: 20),
                             ],
                           )
@@ -396,6 +436,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   // ------------------------- HEADER -------------------------
   Widget _headerHero() {
+    final themeProvider = Provider.of<ThemeProvider>(context);
+    final theme = Theme.of(context);
     return ClipRRect(
       borderRadius: const BorderRadius.only(
         bottomLeft: Radius.circular(50),
@@ -404,18 +446,25 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       child: Container(
         width: double.infinity,
         padding: const EdgeInsets.fromLTRB(16, 90, 16, 30),
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Color(0xFFB6C9D6), // mar
-              Color(0xFFE6DACA), // arena clara
-              Color(0xFFD9CBBE), // arena suave
-            ],
-            stops: [0.0, 0.35, 1.0],
-          ),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: themeProvider.isDarkMode
+              ? [
+                  const Color(0xFF212C36),
+                  const Color(0xFF313940),
+                  themeProvider.backgroundColor,
+                ]
+              : [
+                  const Color(0xFFB6C9D6),
+                  const Color(0xFFE6DACA),
+                  themeProvider.backgroundColor,
+                ],
+          stops: [0.0, 0.35, 1.0],
         ),
+      ),
+
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -519,26 +568,30 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     required String label,
     required VoidCallback onTap,
   }) {
+    final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
     return InkWell(
       borderRadius: BorderRadius.circular(20),
       onTap: onTap,
       child: Ink(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 14),
         decoration: BoxDecoration(
-          color: const Color(0xFFF6EFE9),
+          color: themeProvider.cardColor.withOpacity(.95),
           border: Border.all(color: Colors.black26),
           borderRadius: BorderRadius.circular(20),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, color: _primary),
+            Icon(icon, color: themeProvider.primaryColor),
             const SizedBox(width: 6),
             Flexible(
               child: Text(
                 label,
-                style: const TextStyle(
-                    fontWeight: FontWeight.w600, fontSize: 14),
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                  color: themeProvider.primaryColor,
+                ),
                 overflow: TextOverflow.ellipsis,
               ),
             ),
@@ -548,6 +601,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
   }
 
+
   // ------------------------- ITEM DE SESIÓN -------------------------
   Widget _sessionTile(BuildContext context, Sesion session) {
     return Container(
@@ -556,7 +610,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         leading: CircleAvatar(
           backgroundColor: Colors.blueGrey.withOpacity(0.25),
           child:
-              const Icon(Icons.access_time, color: Colors.black54, size: 22),
+              Icon(Icons.access_time,   color: Theme.of(context).textTheme.bodyLarge?.color,size: 22),
         ),
         title: Text(
           session.nombreSesion,
@@ -565,7 +619,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         ),
         subtitle: Text(
           session.fecha.toString().substring(0, 16),
-          style: const TextStyle(color: Colors.black54),
+          style: TextStyle(  color: Theme.of(context).textTheme.bodyLarge?.color,),
         ),
         trailing: const Icon(Icons.chevron_right),
 
