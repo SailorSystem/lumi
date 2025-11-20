@@ -2,6 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/services/usuario_service.dart';
 
+import 'package:provider/provider.dart';
+import '../../core/providers/theme_provider.dart';
+import '../../core/services/configuracion_service.dart';
+import '../../core/models/configuracion.dart';
+
 class SettingsScreen extends StatefulWidget {
   final int idUsuario;
 
@@ -14,12 +19,12 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   // Paleta
-  static const _bg = Color(0xFFD9CBBE);
+  //static const _bg = Color(0xFFD9CBBE);
   static const _bar = Color(0xFFB49D87);
   static const _primary = Color(0xFF2C4459);
 
   String _userName = 'Usuario';
-  bool _isDarkMode = false;
+  //bool _isDarkMode = false;
   bool _notifications = true;
   bool _sound = true;
 
@@ -33,11 +38,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
+    final nombre = await UsuarioService.obtenerNombre(widget.idUsuario);
+    if (nombre != null) _userName = nombre;
+    else _userName = prefs.getString('user_name') ?? 'Usuario';
+    final config = await ConfiguracionService.obtenerPorUsuario(widget.idUsuario);
     setState(() {
       _userName = prefs.getString('user_name') ?? 'Usuario';
       _notifications = prefs.getBool('notifications') ?? true;
       _sound = prefs.getBool('sound') ?? true;
-      _isDarkMode = prefs.getBool('dark_mode') ?? false;
+      //_isDarkMode = prefs.getBool('dark_mode') ?? false;
     });
   }
 
@@ -58,22 +67,50 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
 
-  Future<void> _updateBool(String key, bool value) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(key, value);
+  //Future<void> _updateBool(String key, bool value) async {
+  //  final prefs = await SharedPreferences.getInstance();
+  //  await prefs.setBool(key, value);
+  //}
+
+  Future<void> _updateConfig(String field, dynamic value) async {
+    setState(() {
+      if (field == 'notificaciones_activadas') _notifications = value as bool;
+      if (field == 'sonido') _sound = value as bool;
+    });
+
+    // 2. Guardar en Supabase
+    final config = await ConfiguracionService.obtenerPorUsuario(widget.idUsuario);
+
+    if (config != null) {
+      await ConfiguracionService.actualizarConfiguracion(config.idConfig!, {field: value});
+    } else {
+      final newConfig = Configuracion(
+        idUsuario: widget.idUsuario,
+        modoOscuro: Provider.of<ThemeProvider>(context, listen: false).isDarkMode,
+        notificacionesActivadas: field == 'notificaciones_activadas' ? value as bool : true,
+        sonido: field == 'sonido' ? value as bool : true,
+      );
+      await ConfiguracionService.crearConfiguracion(newConfig);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final themeProvider = Provider.of<ThemeProvider>(context);
+    final _isDarkMode = themeProvider.isDarkMode;
+    final _primaryColor = themeProvider.primaryColor;
+    final _cardColor = themeProvider.cardColor;
+    final _textColor = themeProvider.textColor;
+
     return WillPopScope(
       onWillPop: () async {
         Navigator.pop(context, _changedForHome);
         return false;
       },
       child: Scaffold(
-        backgroundColor: _bg,
+        backgroundColor: themeProvider.backgroundColor,
         appBar: AppBar(
-          backgroundColor: _bar,
+          backgroundColor: themeProvider.appBarColor,
           title: const Text('Ajustes'),
           centerTitle: true,
           elevation: 0,
@@ -92,12 +129,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16.0),
               child: Card(
-                color: Colors.white,
+                color: _cardColor,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 elevation: 2,
                 child: ListTile(
                   leading: CircleAvatar(
-                    backgroundColor: _primary,
+                      backgroundColor: _primaryColor,
                     child: Text(
                       _userName.isNotEmpty ? _userName[0].toUpperCase() : 'U',
                       style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
@@ -105,7 +142,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   title: Text(
                     _userName,
-                    style: const TextStyle(color: _primary, fontWeight: FontWeight.w700),
+                    style: TextStyle(color: _textColor, fontWeight: FontWeight.w700),
                   ),
                   trailing: TextButton(
                     style: TextButton.styleFrom(
@@ -134,46 +171,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16.0),
               child: Card(
-                color: Colors.white,
+                color: _cardColor,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 elevation: 2,
                 child: Column(
                   children: [
                     // Modo oscuro: avisar y revertir
                     SwitchListTile(
-                      secondary: const Icon(Icons.dark_mode, color: _primary),
-                      title: const Text('Modo Oscuro', style: TextStyle(color: _primary, fontWeight: FontWeight.w600)),
+                      secondary: Icon(Icons.dark_mode, color: _primaryColor),
+                      title: Text('Modo Oscuro', style: TextStyle(color: _textColor, fontWeight: FontWeight.w600)),
                       value: _isDarkMode,
                       activeColor: _primary,
-                      onChanged: (value) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Modo oscuro aún no está disponible')),
-                        );
-                        setState(() => _isDarkMode = false);
-                        _updateBool('dark_mode', false);
+                      onChanged: (value) async {
+                        await themeProvider.toggleTheme(value);
+                        _changedForHome = true;
                       },
                     ),
                     const Divider(height: 1),
                     SwitchListTile(
-                      secondary: const Icon(Icons.notifications, color: _primary),
-                      title: const Text('Notificaciones', style: TextStyle(color: _primary, fontWeight: FontWeight.w600)),
+                      secondary: Icon(Icons.notifications, color: _primaryColor),
+                      title: Text('Notificaciones', style: TextStyle(color: _textColor, fontWeight: FontWeight.w600)),
                       value: _notifications,
-                      activeColor: _primary,
-                      onChanged: (value) {
-                        setState(() => _notifications = value);
-                        _updateBool('notifications', value);
-                      },
+                      activeColor: _primaryColor,
+                      onChanged: (value) => _updateConfig('notificaciones_activadas', value),
                     ),
                     const Divider(height: 1),
                     SwitchListTile(
-                      secondary: const Icon(Icons.volume_up, color: _primary),
-                      title: const Text('Sonido', style: TextStyle(color: _primary, fontWeight: FontWeight.w600)),
+                      secondary: Icon(Icons.volume_up, color: _primaryColor),
+                      title: Text('Sonido', style: TextStyle(color: _textColor, fontWeight: FontWeight.w600)),
                       value: _sound,
                       activeColor: _primary,
-                      onChanged: (value) {
-                        setState(() => _sound = value);
-                        _updateBool('sound', value);
-                      },
+                      onChanged: (value) => _updateConfig('sonido', value),
                     ),
                   ],
                 ),

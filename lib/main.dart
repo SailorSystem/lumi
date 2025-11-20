@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:provider/provider.dart';
 
 import 'features/home/home_screen.dart';
+import 'core/providers/theme_provider.dart';
 
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
     FlutterLocalNotificationsPlugin();
@@ -22,7 +24,15 @@ Future<void> main() async {
   const initSettings = InitializationSettings(android: androidInit);
   await flutterLocalNotificationsPlugin.initialize(initSettings);
 
-  runApp(const MyApp());
+  final themeProvider_instance = ThemeProvider();
+  await themeProvider_instance.initialize();
+
+  runApp(
+    ChangeNotifierProvider.value(
+      value: themeProvider_instance,
+      child: const MyApp(),
+    ),
+  );
 }
 
 class MyApp extends StatelessWidget {
@@ -30,9 +40,38 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Escuchar cambios en el ThemeProvider
+    final themeProvider = Provider.of<ThemeProvider>(context);
+
+    // lib/main.dart (Fragmento corregido dentro de MyApp)
+
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Lumi',
+      theme: ThemeData(
+          brightness: themeProvider.isDarkMode ? Brightness.dark : Brightness.light,
+
+          scaffoldBackgroundColor: themeProvider.backgroundColor,
+
+          colorScheme: ColorScheme(
+            brightness: themeProvider.isDarkMode ? Brightness.dark : Brightness.light,
+            primary: themeProvider.primaryColor,
+            onPrimary: Colors.white,
+            secondary: themeProvider.appBarColor,
+            onSecondary: themeProvider.textColor,
+            surface: themeProvider.cardColor,
+            onSurface: themeProvider.textColor,
+            background: themeProvider.backgroundColor,
+            onBackground: themeProvider.textColor,
+            error: Colors.red,
+            onError: Colors.white,
+          ),
+
+          appBarTheme: AppBarTheme(
+            backgroundColor: themeProvider.appBarColor,
+            foregroundColor: themeProvider.textColor,
+          )
+      ),
       home: const HomeScreen(),
     );
   }
