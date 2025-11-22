@@ -13,111 +13,115 @@ import '../../core/providers/theme_provider.dart';
 
 class CrearNuevaSesionScreen extends StatefulWidget {
   const CrearNuevaSesionScreen({super.key});
+  
   @override
   State<CrearNuevaSesionScreen> createState() => _CrearNuevaSesionScreenState();
 }
 
 class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _titleController = TextEditingController();
-
-  // Lista de métodos (viene desde BD / prefs). Se llena en initState.
+  final titleController = TextEditingController();
+  
+  int _selectedMetodoId = 1; // ✅ Variable para el ID del método
+  
   List<Map<String, dynamic>> _metodosDb = [];
-
-  Map<String, dynamic>? _materiaSel; // Renombrado de _temaSel
-  String _selectedMetodo = 'Pomodoro';
-  DateTime _selectedDate = DateTime.now();
-  TimeOfDay _selectedTime = TimeOfDay.now();
-  Duration _dur = const Duration(hours: 0, minutes: 0, seconds: 0);
-  List<Map<String, dynamic>> _materias = []; // Renombrado de _temas
-  static const List<Color> _palette = [
-    Colors.blue, Colors.red, Colors.green, Colors.amber,
-    Colors.purple, Colors.orange, Colors.teal, Colors.pink,
-    Colors.indigo, Colors.brown, Colors.cyan, Colors.lime,
+  Map<String, dynamic>? materiaSel;
+  DateTime selectedDate = DateTime.now();
+  TimeOfDay selectedTime = TimeOfDay.now();
+  Duration selectedDuration = const Duration(hours: 1);
+  List<Map<String, dynamic>> _materias = [];
+  
+  static const List<List<Color>> _paletteOrganizada = [
+    [Color(0xFFE53935), Color(0xFFD81B60), Color(0xFFEC407A), Color(0xFFAD1457)],
+    [Color(0xFFFF6F00), Color(0xFFFF9800), Color(0xFFFFA726), Color(0xFFFBC02D)],
+    [Color(0xFF43A047), Color(0xFF66BB6A), Color(0xFF00897B), Color(0xFF2E7D32)],
+    [Color(0xFF1E88E5), Color(0xFF42A5F5), Color(0xFF0277BD), Color(0xFF039BE5)],
+    [Color(0xFF5E35B1), Color(0xFF7E57C2), Color(0xFF8E24AA), Color(0xFF4A148C)],
+    [Color(0xFF546E7A), Color(0xFF6D4C41), Color(0xFF757575), Color(0xFF455A64)],
   ];
+
+  IconData getIconoMetodo(String nombreMetodo) {
+    switch (nombreMetodo.toLowerCase()) {
+      case 'pomodoro':
+        return Icons.timelapse;
+      case 'flashcards':
+        return Icons.style;
+      case 'mapa mental':
+        return Icons.account_tree;
+      default:
+        return Icons.school;
+    }
+  }
 
   @override
   void initState() {
     super.initState();
-    _loadMaterias(); // Renombrado de _loadTemas
-    _loadMetodosDb();
+    _loadMaterias();
+    _limpiarMetodosViejos();
+    loadMetodosDb();
+  }
+
+  Future<void> _limpiarMetodosViejos() async {
+    final prefs = await SharedPreferences.getInstance();
+    // Eliminar los métodos viejos con estructura incorrecta
+    await prefs.remove('metodos');
+    print('🧹 Métodos viejos eliminados de SharedPreferences');
   }
   
-  // Carga métodos desde SharedPreferences si existen; si no, guarda los defaults (los tuyos)
-  Future<void> _loadMetodosDb() async {
+  Future<void> loadMetodosDb() async {
     final prefs = await SharedPreferences.getInstance();
     final List<String>? stored = prefs.getStringList('metodos');
+    
     if (stored != null && stored.isNotEmpty) {
       setState(() {
         _metodosDb = stored.map((s) => json.decode(s) as Map<String, dynamic>).toList();
       });
       return;
     }
-    // defaults proporcionados
+
     _metodosDb = [
-      {"idx":0,"id_metodo":1,"nombre":"Pomodoro","descripcion":"Técnica de estudio basada en intervalos de 25 minutos"},
-      {"idx":1,"id_metodo":2,"nombre":"Flashcards","descripcion":"Técnica de estudio basada en tarjetas con preguntas y respuestas para reforzar la memoria."},
-      {"idx":2,"id_metodo":3,"nombre":"Mapa Mental","descripcion":"Representación gráfica de ideas y conceptos organizada de forma radial para facilitar la comprensión y el recuerdo."}
+      {
+        'idx': 0,
+        'id_metodo': 1,
+        'nombre': 'Pomodoro',
+        'descripcion': 'Técnica de estudio basada en intervalos de 25 minutos'
+      },
+      {
+        'idx': 1,
+        'id_metodo': 2,
+        'nombre': 'Flashcards',
+        'descripcion': 'Técnica de estudio basada en tarjetas con preguntas y respuestas para reforzar la memoria.'
+      },
+      {
+        'idx': 2,
+        'id_metodo': 3,
+        'nombre': 'Mapa Mental',
+        'descripcion': 'Representación gráfica de ideas y conceptos organizada de forma radial para facilitar la comprensión y el recuerdo.'
+      }
     ];
+
     await prefs.setStringList('metodos', _metodosDb.map((m) => json.encode(m)).toList());
-    setState((){});
+    setState(() {});
   }
 
   @override
   void dispose() {
-    _titleController.dispose();
+    titleController.dispose();
     super.dispose();
-  }
-
-  final List<Map<String, dynamic>> _metodos = [
-    {'nombre': 'Pomodoro', 'icono': Icons.timelapse},
-    {'nombre': 'Flashcards', 'icono': Icons.style},
-    {'nombre': 'Mapa Mental', 'icono': Icons.account_tree},
-    // Puedes agregar más métodos aquí...
-  ];
-
-  // --- LÓGICA DE MATERIAS ACTUALIZADA ---
-
-  List<Map<String, dynamic>> _getDefaultMaterias() {
-    // Esta es tu lista inicial
-    return [
-      {
-        'id': 'default_math',
-        'nombre': 'Matemática',
-        'color': Colors.blue.value,
-      },
-      {
-        'id': 'default_physics',
-        'nombre': 'Física',
-        'color': Colors.red.value,
-      },
-      {
-        'id': 'default_biology',
-        'nombre': 'Biología',
-        'color': Colors.green.value,
-      },
-    ];
   }
 
   Future<void> _loadMaterias() async {
     final prefs = await SharedPreferences.getInstance();
-    // Buscamos 'materias' en lugar de 'temas'
     final materiasJson = prefs.getStringList('materias') ?? [];
 
     if (materiasJson.isEmpty) {
-      // Si no hay materias guardadas, cargamos las de por defecto
-      setState(() {
-        _materias = _getDefaultMaterias();
-      });
-      // Y las guardamos para la próxima vez
       await _saveMaterias();
     } else {
-      // Si ya hay materias guardadas, simplemente las cargamos
       setState(() {
         _materias = materiasJson.map((e) => Map<String, dynamic>.from(json.decode(e))).toList();
-        if (_materiaSel != null) {
-          final m = _materias.where((t) => t['id'] == _materiaSel!['id']);
-          if (m.isNotEmpty) _materiaSel = m.first;
+        if (materiaSel != null) {
+          final m = _materias.where((t) => t['id'] == materiaSel!['id']);
+          if (m.isNotEmpty) materiaSel = m.first;
         }
       });
     }
@@ -125,150 +129,101 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
 
   Future<void> _saveMaterias() async {
     final prefs = await SharedPreferences.getInstance();
-    // Guardamos en 'materias'
     await prefs.setStringList('materias', _materias.map((e) => json.encode(e)).toList());
   }
 
   Future<void> _addMateria(Map<String, dynamic> materia) async {
     _materias.add(materia);
     await _saveMaterias();
-    setState(() => _materiaSel = materia);
+    setState(() => materiaSel = materia);
   }
 
-  // --- FIN DE LÓGICA DE MATERIAS ---
+  Future<void> saveSession() async {
+    print('🔵 saveSession() iniciado');
+    
+    if (!_formKey.currentState!.validate()) {
+      print('❌ Validación de formulario falló');
+      return;
+    }
 
-  Future<void> _saveSession() async {
-    if (!_formKey.currentState!.validate()) return;
-
-    // Obtén el usuario actual (te aseguras arriba que userId != null)
     final prefs = await SharedPreferences.getInstance();
     final userId = prefs.getInt('user_id');
-
+    
+    print('👤 UserID obtenido de SharedPreferences: $userId');
+    
     if (userId == null) {
-      // No hay usuario en prefs: pedir registro / mostrar error
+      print('❌ No hay user_id en SharedPreferences');
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('No hay usuario activo. Regístrate primero.')),
       );
       return;
     }
 
-    // Mapear método seleccionado a id_metodo usando _metodosDb (si no se encuentra queda null)
-    int? metodoId;
-    if (_metodosDb.isNotEmpty) {
-      for (final m in _metodosDb) {
-        final nombre = (m['nombre'] ?? '').toString();
-        if (nombre.toLowerCase() == _selectedMetodo.toLowerCase()) {
-          metodoId = m['id_metodo'] is int ? m['id_metodo'] as int : int.tryParse(m['id_metodo'].toString());
-          break;
-        }
-      }
-    }
-    // si aún no se encontró, intenta asignar por nombre conocido (compatibilidad)
-    metodoId ??= _selectedMetodo.toLowerCase() == 'pomodoro' ? 1 : null;
-    if (metodoId != null) await prefs.setInt('last_selected_metodo_id', metodoId);
+    final metodoId = _selectedMetodoId;
+    
+    print('✅ Método ID seleccionado: $metodoId');
 
-    // Intentaremos mapear materia a id_tema si es numérico; si no, lo dejamos null
-    int? idTema;
-    if (_materiaSel != null) {
-      var mid = _materiaSel!['id'];
-      if (mid is int) {
-        idTema = mid;
-      } else {
-        // Nuevo tema: crea primero en la base, pasando el nombre como "titulo", el color en string, y el usuario asociado
-        final nuevoTema = await TemaService.crearTema(
-          Tema(
-            titulo: _materiaSel!['nombre'] as String,
-            colorHex: (_materiaSel!['color'] as int).toRadixString(16),
-            idUsuario: userId!, // <-- ESTA ES LA LÍNEA CRÍTICA
-          ),
-        );
-        if (nuevoTema == null || nuevoTema.idTema == null) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('No se pudo crear la materia en la base.')),
-          );
-          return;
-        }
-        idTema = nuevoTema.idTema!;
-        _materiaSel!['id'] = idTema; // Actualiza para futuras sesiones
-      }
-    }
-
-    final fecha = DateTime(
-      _selectedDate.year,
-      _selectedDate.month,
-      _selectedDate.day,
-      _selectedTime.hour,
-      _selectedTime.minute,
+    final selectedDateTime = DateTime(
+      selectedDate.year,
+      selectedDate.month,
+      selectedDate.day,
+      selectedTime.hour,
+      selectedTime.minute,
     );
 
-    final duracionSegundos = _dur.inSeconds > 0 ? _dur.inSeconds : null;
+    int? temaId;
+    if (materiaSel != null) {
+      temaId = materiaSel!['id_tema'] as int?;
+    }
 
-    final nuevaSesion = Sesion(
+    final duracionSegundos = selectedDuration.inSeconds;
+
+    final nueva = Sesion(
       idSesion: null,
       idUsuario: userId,
       idMetodo: metodoId,
-      idTema: idTema,
-      nombreSesion: _titleController.text.trim(),
-      fecha: fecha,
+      idTema: temaId,
+      nombreSesion: titleController.text.trim(),
+      fecha: selectedDateTime,
       esRapida: false,
       duracionTotal: duracionSegundos,
+      estado: 'programada',
     );
-    
-    // Mostrar loading simple
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const Center(child: CircularProgressIndicator()),
-    );
+
+    print('📤 Enviando sesión a Supabase:');
+    print('   - Usuario ID: ${nueva.idUsuario}');
+    print('   - Método ID: ${nueva.idMetodo}');
+    print('   - Tema ID: ${nueva.idTema}');
+    print('   - Nombre: ${nueva.nombreSesion}');
+    print('   - Fecha: ${nueva.fecha}');
+    print('   - Duración: ${nueva.duracionTotal} segundos');
 
     try {
-      final creado = await SesionService.crearSesion(nuevaSesion);
+      final creada = await SesionService.crearSesion(nueva);
+      
+      print('✅ Sesión creada exitosamente con ID: ${creada?.idSesion}');
 
-      Navigator.of(context).pop(); // quitar loading
-
-      if (creado == null) {
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No se pudo crear la sesión en Supabase.')),
+          const SnackBar(
+            content: Text("Sesión creada con éxito"),
+            backgroundColor: Colors.green,
+          ),
         );
-        return;
+        Navigator.pop(context, true);
       }
-
-      // Opcional: guardar una versión local (para compatibilidad con tu home si aún lee prefs)
-      final sessionsLocal = prefs.getStringList('completed_sessions') ?? [];
-      final localMap = {
-        'id_sesion': creado.idSesion,
-        'id_usuario': creado.idUsuario,
-        'id_metodo': creado.idMetodo,
-        'id_tema': creado.idTema,
-        'titulo': creado.nombreSesion,
-        'fecha': creado.fecha.toIso8601String(),
-        'es_rapida': creado.esRapida,
-        'duracion_total': creado.duracionTotal,
-        'estado': 'programada',
-      };
-      sessionsLocal.add(json.encode(localMap));
-      await prefs.setStringList('completed_sessions', sessionsLocal);
-
-      // Confirmación y volver al Home (o mostrar la sesión recién creada)
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Sesión creada correctamente.')),
-      );
-
-      if (!mounted) return;
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const HomeScreen()),
-        (_) => false,
-      );
     } catch (e) {
-      Navigator.of(context).pop(); // quitar loading si hay error
-      debugPrint('Error creando sesión en Supabase: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error creando sesión: $e')),
-      );
+      print('❌ Error creando sesión: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Error al guardar: $e"),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
-
-
 
   Widget _lumiPickerButton({
     required IconData icon,
@@ -277,9 +232,9 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
     VoidCallback? onTap,
   }) {
     final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
-    final cardColor  = themeProvider.cardColor;
-    final textColor  = themeProvider.textColor;
-    final primary    = themeProvider.primaryColor;
+    final cardColor = themeProvider.cardColor;
+    final textColor = themeProvider.textColor;
+    final primary = themeProvider.primaryColor;
 
     return InkWell(
       borderRadius: BorderRadius.circular(16),
@@ -292,7 +247,7 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
           border: Border.all(
             color: themeProvider.isDarkMode ? Colors.grey[700]! : Colors.black26,
           ),
-          boxShadow: const [BoxShadow(blurRadius: 4, offset: Offset(0,2), color: Colors.black12)],
+          boxShadow: const [BoxShadow(blurRadius: 4, offset: Offset(0, 2), color: Colors.black12)],
         ),
         child: Row(
           children: [
@@ -314,32 +269,29 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
     );
   }
 
-
-  // Widget renombrado de _temaButton
   Widget _materiaButton() {
     final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
-    final cardColor  = themeProvider.cardColor;
-    final textColor  = themeProvider.textColor;
-    final primary    = themeProvider.primaryColor;
-    final isSelected = _materiaSel != null;
-    final color = isSelected ? Color(_materiaSel!['color'] as int) : Colors.black26;
-    // Texto cambiado a "Elegir materia"
-    final label = isSelected ? _materiaSel!['nombre'] as String : 'Elegir materia';
+    final cardColor = themeProvider.cardColor;
+    final textColor = themeProvider.textColor;
+    final primary = themeProvider.primaryColor;
+    final isSelected = materiaSel != null;
+    final color = isSelected ? Color(materiaSel!['color'] as int) : Colors.black26;
+    final label = isSelected ? materiaSel!['nombre'] as String : 'Elegir materia';
+    
     return InkWell(
       borderRadius: BorderRadius.circular(16),
       onTap: () async {
         final picked = await showModalBottomSheet<Map<String, dynamic>>(
           context: context,
           backgroundColor: cardColor,
-          // LÍNEA CORREGIDA (1 de 4)
           shape: const RoundedRectangleBorder(
-              borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
           builder: (ctx) {
             return SafeArea(
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: _materias.isEmpty
-                // Texto cambiado a "materias"
                     ? const Text('Aún no hay materias. Crea una con +.')
                     : ListView.separated(
                   itemCount: _materias.length,
@@ -357,7 +309,7 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
             );
           },
         );
-        if (picked != null) setState(() => _materiaSel = picked);
+        if (picked != null) setState(() => materiaSel = picked);
       },
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
@@ -365,7 +317,7 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
           color: cardColor,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: Colors.black26),
-          boxShadow: const [BoxShadow(blurRadius: 4, offset: Offset(0,2), color: Colors.black12)],
+          boxShadow: const [BoxShadow(blurRadius: 4, offset: Offset(0, 2), color: Colors.black12)],
         ),
         child: Row(
           children: [
@@ -379,192 +331,338 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
     );
   }
 
-  // Renombrado de _openTemaSheet
   Future<void> _openMateriaSheet() async {
     final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
-    final cardColor  = themeProvider.cardColor;
-    final textColor  = themeProvider.textColor;
-    final primary    = themeProvider.primaryColor;
+    final cardColor = themeProvider.cardColor;
+    final textColor = themeProvider.textColor;
+    final primary = themeProvider.primaryColor;
+    
     final nameCtrl = TextEditingController();
-    Color picked = _palette.first;
+    Color picked = _paletteOrganizada.first.first;
+    
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: cardColor,
-      // LÍNEA CORREGIDA (2 de 4)
       shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
       builder: (ctx) {
         return StatefulBuilder(builder: (ctx, setS) {
           final bottom = MediaQuery.of(ctx).viewInsets.bottom;
-          return Padding(
-            padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + bottom),
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              Container(height: 4, width: 44, decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(2))),
-              const SizedBox(height: 12),
-              // Texto cambiado
-              const Text('Nueva Materia', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 18)),
-              const SizedBox(height: 12),
-              TextField(
-                controller: nameCtrl,
-                // Texto cambiado
-                decoration: const InputDecoration(labelText: 'Nombre de la materia', border: OutlineInputBorder()),
-              ),
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 10, runSpacing: 10,
-                children: _palette.map((c) {
-                  final sel = picked.value == c.value;
-                  return InkWell(
-                    onTap: () => setS(() => picked = c),
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 120),
-                      width: 40, height: 40,
-                      decoration: BoxDecoration(
-                        color: c, shape: BoxShape.circle,
-                        border: Border.all(color: sel ? Colors.black54 : Colors.black12, width: sel ? 2 : 1),
-                        boxShadow: [if (sel) const BoxShadow(blurRadius: 6, spreadRadius: 1)],
+          return SingleChildScrollView(
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + bottom),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    height: 4,
+                    width: 44,
+                    decoration: BoxDecoration(
+                      color: textColor.withOpacity(0.3),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  
+                  Text(
+                    'Nueva Materia',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 18,
+                      color: textColor,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  
+                  TextField(
+                    controller: nameCtrl,
+                    style: TextStyle(color: textColor),
+                    decoration: InputDecoration(
+                      labelText: 'Nombre de la materia',
+                      labelStyle: TextStyle(color: textColor.withOpacity(0.7)),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
                       ),
-                      child: sel ? const Icon(Icons.check, color: Colors.white) : null,
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(
+                          color: textColor.withOpacity(0.3),
+                        ),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: primary, width: 2),
+                      ),
                     ),
-                  );
-                }).toList(),
+                  ),
+                  const SizedBox(height: 20),
+                  
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Elige un color',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                          color: textColor.withOpacity(0.8),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      
+                      ..._paletteOrganizada.asMap().entries.map((entry) {
+                        final index = entry.key;
+                        final colores = entry.value;
+                        
+                        final categorias = [
+                          'Rojos y Rosas',
+                          'Naranjas y Amarillos',
+                          'Verdes',
+                          'Azules',
+                          'Púrpuras y Violetas',
+                          'Neutros',
+                        ];
+                        
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 8, left: 4),
+                                child: Text(
+                                  categorias[index],
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
+                                    color: textColor.withOpacity(0.6),
+                                  ),
+                                ),
+                              ),
+                              
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                                children: colores.map((c) {
+                                  final sel = picked.value == c.value;
+                                  return InkWell(
+                                    onTap: () => setS(() => picked = c),
+                                    borderRadius: BorderRadius.circular(12),
+                                    child: AnimatedContainer(
+                                      duration: const Duration(milliseconds: 200),
+                                      width: sel ? 50 : 44,
+                                      height: sel ? 50 : 44,
+                                      decoration: BoxDecoration(
+                                        color: c,
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(
+                                          color: sel ? Colors.white : c.withOpacity(0.3),
+                                          width: sel ? 3 : 2,
+                                        ),
+                                        boxShadow: sel
+                                            ? [
+                                                BoxShadow(
+                                                  color: c.withOpacity(0.5),
+                                                  blurRadius: 12,
+                                                  spreadRadius: 2,
+                                                ),
+                                              ]
+                                            : [
+                                                BoxShadow(
+                                                  color: Colors.black.withOpacity(0.1),
+                                                  blurRadius: 4,
+                                                  offset: const Offset(0, 2),
+                                                ),
+                                              ],
+                                      ),
+                                      child: sel
+                                          ? const Icon(
+                                              Icons.check,
+                                              color: Colors.white,
+                                              size: 28,
+                                            )
+                                          : null,
+                                    ),
+                                  );
+                                }).toList(),
+                              ),
+                            ],
+                          ),
+                        );
+                      }).toList(),
+                    ],
+                  ),
+                  
+                  const SizedBox(height: 20),
+                  
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: primary,
+                            side: BorderSide(color: primary.withOpacity(0.45)),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                          ),
+                          child: const Text(
+                            'Cancelar',
+                            style: TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () {
+                            final name = nameCtrl.text.trim();
+                            if (name.isEmpty) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Por favor ingresa un nombre'),
+                                ),
+                              );
+                              return;
+                            }
+                            
+                            final materia = {
+                              'id': DateTime.now().microsecondsSinceEpoch.toString(),
+                              'nombre': name,
+                              'color': picked.value,
+                            };
+                            Navigator.pop(ctx);
+                            _addMateria(materia);
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: primary,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            elevation: 2,
+                          ),
+                          child: const Text(
+                            'Guardar',
+                            style: TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
-              const SizedBox(height: 16),
-              Row(children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: primary,
-                      side: BorderSide(color: primary.withOpacity(0.45)),
-                      shape: const StadiumBorder(),
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                    ),
-                    child: const Text('Cancelar', style: TextStyle(fontWeight: FontWeight.w600)),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: ElevatedButton(
-                    onPressed: () {
-                      final name = nameCtrl.text.trim();
-                      if (name.isEmpty) return;
-                      // Variable renombrada
-                      final materia = {
-                        'id': DateTime.now().microsecondsSinceEpoch.toString(),
-                        'nombre': name,
-                        'color': picked.value,
-                      };
-                      Navigator.pop(ctx);
-                      _addMateria(materia); // Función renombrada
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: primary,
-                      foregroundColor: Colors.white,
-                      shape: const StadiumBorder(),
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      elevation: 2,
-                    ),
-                    child: const Text('Guardar', style: TextStyle(fontWeight: FontWeight.w700)),
-                  ),
-                ),
-              ]),
-            ]),
+            ),
           );
         });
       },
     );
   }
 
-  Future<void> _openDurationSheet() async {
+  Future<void> openDurationSheet() async {
     final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
-    final cardColor  = themeProvider.cardColor;
-    final textColor  = themeProvider.textColor;
-    final primary    = themeProvider.primaryColor;
-    int h = _dur.inHours.clamp(0, 23);
-    int m = (_dur.inMinutes % 60).clamp(0, 59);
-    int s = (_dur.inSeconds % 60).clamp(0, 59);
+    final cardColor = themeProvider.cardColor;
+    final textColor = themeProvider.textColor;
+    final primary = themeProvider.primaryColor;
+
+    int h = selectedDuration.inHours.clamp(0, 23);
+    int m = (selectedDuration.inMinutes % 60).clamp(0, 59);
+    
     final hc = FixedExtentScrollController(initialItem: h);
     final mc = FixedExtentScrollController(initialItem: m);
-    final sc = FixedExtentScrollController(initialItem: s);
+
     await showModalBottomSheet(
       context: context,
       backgroundColor: cardColor,
-      // LÍNEA CORREGIDA (3 de 4)
       shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      builder: (_) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              const Text('Duración', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 18)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Duración',
+                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 18),
+              ),
               const SizedBox(height: 8),
               SizedBox(
                 height: 160,
                 child: Row(
                   children: [
                     _colLabel(context, 'HH'),
-                    Expanded(child: CupertinoPicker(
-                      scrollController: hc,
-                      itemExtent: 36,
-                      onSelectedItemChanged: (v) => h = v,
-                      children: List.generate(24, (i) => Center(child: Text(_two(i)))),
-                    )),
+                    Expanded(
+                      child: CupertinoPicker(
+                        scrollController: hc,
+                        itemExtent: 36,
+                        onSelectedItemChanged: (v) => h = v,
+                        children: List.generate(24, (i) => Center(child: Text(_two(i)))),
+                      ),
+                    ),
                     _colLabel(context, 'MM'),
-                    Expanded(child: CupertinoPicker(
-                      scrollController: mc,
-                      itemExtent: 36,
-                      onSelectedItemChanged: (v) => m = v,
-                      children: List.generate(60, (i) => Center(child: Text(_two(i)))),
-                    )),
-                    _colLabel(context, 'SS'),
-                    Expanded(child: CupertinoPicker(
-                      scrollController: sc,
-                      itemExtent: 36,
-                      onSelectedItemChanged: (v) => s = v,
-                      children: List.generate(60, (i) => Center(child: Text(_two(i)))),
-                    )),
+                    Expanded(
+                      child: CupertinoPicker(
+                        scrollController: mc,
+                        itemExtent: 36,
+                        onSelectedItemChanged: (v) => m = v,
+                        children: List.generate(60, (i) => Center(child: Text(_two(i)))),
+                      ),
+                    ),
                   ],
                 ),
               ),
               const SizedBox(height: 8),
-              Row(children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: () => Navigator.pop(context),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: primary,
-                      side: BorderSide(color: primary.withOpacity(0.45)),
-                      shape: const StadiumBorder(),
-                      padding: const EdgeInsets.symmetric(vertical: 14),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(context),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: primary,
+                        side: BorderSide(color: primary.withOpacity(0.45)),
+                        shape: const StadiumBorder(),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                      child: const Text(
+                        'Cancelar',
+                        style: TextStyle(fontWeight: FontWeight.w600), 
+                      ),
                     ),
-                    child: const Text('Cancelar', style: TextStyle(fontWeight: FontWeight.w600)),
                   ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: ElevatedButton(
-                    onPressed: () {
-                      setState(() => _dur = Duration(hours: h, minutes: m, seconds: s));
-                      Navigator.pop(context);
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: primary,
-                      foregroundColor: Colors.white,
-                      shape: const StadiumBorder(),
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      elevation: 2,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () {
+                        setState(() {
+                          selectedDuration = Duration(hours: h, minutes: m);
+                        });
+                        Navigator.pop(context);
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: primary,
+                        foregroundColor: Colors.white,
+                        shape: const StadiumBorder(),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        elevation: 2,
+                      ),
+                      child: const Text(
+                        'Listo',
+                        style: TextStyle(fontWeight: FontWeight.w700),
+                      ),
                     ),
-                    child: const Text('Listo', style: TextStyle(fontWeight: FontWeight.w700)),
                   ),
-                ),
-              ]),
-            ]),
+                ],
+              ),
+            ],
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 
@@ -580,17 +678,15 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
     );
   }
 
-
   static String _two(int n) => n.toString().padLeft(2, '0');
 
   @override
   Widget build(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context);
-    final bg         = themeProvider.backgroundColor;
-    final appBarCol  = themeProvider.appBarColor;
-    final primary    = themeProvider.primaryColor;
-    final cardColor  = themeProvider.cardColor;
-    final textColor  = themeProvider.textColor;
+    final bg = themeProvider.backgroundColor;
+    final primary = themeProvider.primaryColor;
+    final cardColor = themeProvider.cardColor;
+    final textColor = themeProvider.textColor;
 
     return Scaffold(
       backgroundColor: bg,
@@ -632,7 +728,7 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
           padding: const EdgeInsets.all(16),
           children: [
             TextFormField(
-              controller: _titleController,
+              controller: titleController,
               decoration: InputDecoration(
                 labelText: 'Título',
                 hintText: 'Escribe un título',
@@ -660,15 +756,13 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
               children: [
                 Expanded(
                   child: FormField<Map<String, dynamic>>(
-                    // Validación y variable actualizadas
-                    validator: (_) => _materiaSel == null ? 'Por favor selecciona una materia' : null,
+                    validator: (_) => materiaSel == null ? 'Por favor selecciona una materia' : null,
                     builder: (state) => Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Texto cambiado
-                        Text('Materia', style: TextStyle(fontSize: 12, color: textColor )),
+                        Text('Materia', style: TextStyle(fontSize: 12, color: textColor)),
                         const SizedBox(height: 6),
-                        _materiaButton(), // Función renombrada
+                        _materiaButton(),
                         if (state.hasError)
                           Padding(
                             padding: const EdgeInsets.only(top: 6),
@@ -680,11 +774,12 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
                 ),
                 const SizedBox(width: 10),
                 SizedBox(
-                  height: 48, width: 48,
+                  height: 48,
+                  width: 48,
                   child: FloatingActionButton.small(
-                    heroTag: 'addMateriaFab', // HeroTag cambiado
+                    heroTag: 'addMateriaFab',
                     backgroundColor: primary,
-                    onPressed: _openMateriaSheet, // Función renombrada
+                    onPressed: _openMateriaSheet,
                     child: Icon(Icons.add, color: cardColor),
                   ),
                 ),
@@ -694,29 +789,162 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
             _lumiPickerButton(
               icon: Icons.school,
               label: 'Método',
-              value: _selectedMetodo,
+              value: _metodosDb
+                  .firstWhere(
+                    (m) => m['id_metodo'] == _selectedMetodoId,
+                    orElse: () => {'nombre': 'Seleccionar'},
+                  )['nombre']
+                  ?.toString() ??
+                  'Seleccionar',
               onTap: () async {
                 final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
-                final cardColor  = themeProvider.cardColor;
-                final textColor  = themeProvider.textColor;
-
-                final v = await showModalBottomSheet<String>(
+                final cardColor = themeProvider.cardColor;
+                final textColor = themeProvider.textColor;
+                final primary = themeProvider.primaryColor;
+                
+                final picked = await showModalBottomSheet<int>(
                   context: context,
                   backgroundColor: cardColor,
                   shape: const RoundedRectangleBorder(
-                    borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-                  builder: (_) => SafeArea(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: _metodos.map((metodo) => ListTile(
-                        leading: Icon(metodo['icono'], color: textColor),
-                        title: Text(metodo['nombre'], style: TextStyle(color: textColor)),
-                        onTap: () => Navigator.pop(context, metodo['nombre']),
-                      )).toList(),
-                    ),
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
                   ),
+                  builder: (_) {
+                    return SafeArea(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              'Selecciona un método',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w600,
+                                color: textColor,
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            
+                            ..._metodosDb.map((metodo) {
+                              final id = metodo['id_metodo'] as int;
+                              final nombre = metodo['nombre'] as String;
+                              final descripcion = metodo['descripcion'] as String? ?? 'Sin descripción disponible';
+                              final icono = getIconoMetodo(nombre);
+                              
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 8),
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: primary.withOpacity(0.05),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: _selectedMetodoId == id
+                                          ? primary
+                                          : primary.withOpacity(0.2),
+                                      width: _selectedMetodoId == id ? 2 : 1,
+                                    ),
+                                  ),
+                                  child: ListTile(
+                                    contentPadding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 4,
+                                    ),
+                                    leading: Container(
+                                      padding: const EdgeInsets.all(8),
+                                      decoration: BoxDecoration(
+                                        color: primary.withOpacity(0.1),
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: Icon(icono, color: primary, size: 24),
+                                    ),
+                                    title: Text(
+                                      nombre,
+                                      style: TextStyle(
+                                        color: textColor,
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 16,
+                                      ),
+                                    ),
+                                    trailing: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        IconButton(
+                                          icon: Icon(
+                                            Icons.info_outline,
+                                            color: primary,
+                                            size: 24,
+                                          ),
+                                          onPressed: () {
+                                            showDialog(
+                                              context: context,
+                                              builder: (dialogContext) => AlertDialog(
+                                                backgroundColor: cardColor,
+                                                shape: RoundedRectangleBorder(
+                                                  borderRadius: BorderRadius.circular(16),
+                                                ),
+                                                title: Row(
+                                                  children: [
+                                                    Icon(icono, color: primary),
+                                                    const SizedBox(width: 12),
+                                                    Expanded(
+                                                      child: Text(
+                                                        nombre,
+                                                        style: TextStyle(
+                                                          color: primary,
+                                                          fontSize: 20,
+                                                          fontWeight: FontWeight.bold,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                                content: Text(
+                                                  descripcion,
+                                                  style: TextStyle(
+                                                    color: textColor,
+                                                    fontSize: 15,
+                                                    height: 1.5,
+                                                  ),
+                                                ),
+                                                actions: [
+                                                  TextButton(
+                                                    onPressed: () =>
+                                                        Navigator.pop(dialogContext),
+                                                    child: Text(
+                                                      'ENTENDIDO',
+                                                      style: TextStyle(
+                                                        color: primary,
+                                                        fontWeight: FontWeight.w600,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            );
+                                          },
+                                          tooltip: 'Ver información',
+                                        ),
+                                        const SizedBox(width: 4),
+                                      ],
+                                    ),
+                                    onTap: () => Navigator.pop(context, id),
+                                  ),
+                                ),
+                              );
+                            }).toList(),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
                 );
-                if (v != null) setState(() => _selectedMetodo = v);
+                
+                if (picked != null) {
+                  setState(() {
+                    _selectedMetodoId = picked;
+                    print('✅ Método seleccionado ID: $_selectedMetodoId');
+                  });
+                }
               },
             ),
             const SizedBox(height: 16),
@@ -726,15 +954,15 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
                   child: _lumiPickerButton(
                     icon: Icons.calendar_today,
                     label: 'Fecha',
-                    value: '${_two(_selectedDate.day)}/${_two(_selectedDate.month)}/${_selectedDate.year}',
+                    value: '${_two(selectedDate.day)}/${_two(selectedDate.month)}/${selectedDate.year}',
                     onTap: () async {
                       final d = await showDatePicker(
                         context: context,
-                        initialDate: _selectedDate,
-                        firstDate: DateTime.now().add(const Duration(days: -30)), // Permitir fechas pasadas por si acaso
+                        initialDate: selectedDate,
+                        firstDate: DateTime.now().add(const Duration(days: -30)),
                         lastDate: DateTime.now().add(const Duration(days: 365)),
                       );
-                      if (d != null) setState(() => _selectedDate = d);
+                      if (d != null) setState(() => selectedDate = d);
                     },
                   ),
                 ),
@@ -743,10 +971,10 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
                   child: _lumiPickerButton(
                     icon: Icons.access_time,
                     label: 'Hora',
-                    value: '${_two(_selectedTime.hour)}:${_two(_selectedTime.minute)}',
+                    value: '${_two(selectedTime.hour)}:${_two(selectedTime.minute)}',
                     onTap: () async {
-                      final t = await showTimePicker(context: context, initialTime: _selectedTime);
-                      if (t != null) setState(() => _selectedTime = t);
+                      final t = await showTimePicker(context: context, initialTime: selectedTime);
+                      if (t != null) setState(() => selectedTime = t);
                     },
                   ),
                 ),
@@ -756,14 +984,14 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
             _lumiPickerButton(
               icon: Icons.timer,
               label: 'Duración',
-              value: '${_two(_dur.inHours)}:${_two(_dur.inMinutes % 60)}:${_two(_dur.inSeconds % 60)}',
-              onTap: _openDurationSheet,
+              value: '${_two(selectedDuration.inHours)}:${_two(selectedDuration.inMinutes % 60)}',
+              onTap: openDurationSheet,
             ),
             const SizedBox(height: 24),
             SizedBox(
               height: 56,
               child: ElevatedButton(
-                onPressed: _saveSession,
+                onPressed: saveSession,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: primary,
                   foregroundColor: Colors.white,

@@ -3,6 +3,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/services/usuario_service.dart';
 import '../../core/models/usuario.dart';
+import '../../core/services/supabase_service.dart';
+import '../../core/supabase_manager.dart';
+import '../../core/services/sesion_service.dart'; 
+import 'package:supabase_flutter/supabase_flutter.dart';
+
 
 class FirstRegisterScreen extends StatefulWidget {
   const FirstRegisterScreen({super.key});
@@ -28,8 +33,61 @@ class _FirstRegisterScreenState extends State<FirstRegisterScreen> {
     setState(() => _saving = true);
 
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString("user_name", name);
+    
+    // ✅ VERIFICAR SI YA EXISTE UN USUARIO (ANTES de limpiar)
+    int? existingUserId = prefs.getInt('user_id'); // Con guion bajo
+    
+    // Si no encuentra con guion bajo, intentar sin guion (antiguo)
+    if (existingUserId == null) {
+      existingUserId = prefs.getInt('userid'); // Sin guion bajo (antiguo)
+      
+      // Si encontró con la clave antigua, migrar a la nueva
+      if (existingUserId != null) {
+        print('🔄 Migrando de "userid" a "user_id"');
+        await prefs.setInt('user_id', existingUserId); // Guardar con la clave correcta
+        await prefs.remove('userid'); // Eliminar la clave antigua
+      }
+    }
+    
+    if (existingUserId != null) {
+      print('👤 Usuario existente encontrado: $existingUserId');
+      
+      // Obtener datos del usuario desde Supabase
+      try {
+        final usuarioData = await SupabaseService.getById(
+          'usuarios',
+          'id_usuario',
+          existingUserId,
+        );
+        
+        if (usuarioData != null) {
+          final usuarioExistente = Usuario.fromMap(usuarioData);
+          
+          // Actualizar el nombre si cambió
+          if (usuarioExistente.nombre != name) {
+            await SupabaseService.update(
+              'usuarios',
+              'id_usuario',
+              existingUserId,
+              {'nombre': name},
+            );
+            await prefs.setString('user_name', name);
+            print('✅ Nombre actualizado para usuario $existingUserId');
+          }
+          
+          if (!mounted) return;
+          Navigator.pop(context, usuarioExistente);
+          return;
+        }
+      } catch (e) {
+        print('❌ Error verificando usuario existente: $e');
+        // Si falla, continuar para crear nuevo usuario
+      }
+    }
 
+    // ✅ Si no existe usuario, crear uno nuevo
+    print('🆕 Creando nuevo usuario...');
+    
     Usuario? nuevoUsuario;
 
     try {
@@ -50,12 +108,20 @@ class _FirstRegisterScreenState extends State<FirstRegisterScreen> {
       return;
     }
 
-    await prefs.setInt("user_id", nuevoUsuario.idUsuario);
+    // ✅ Guardar con la clave correcta
+    await prefs.setInt('user_id', nuevoUsuario.idUsuario); // Con guion bajo
+    await prefs.setString('user_name', name);
+    
+    // Limpiar clave antigua si existía
+    await prefs.remove('userid');
+    
+    print('✅ Nuevo usuario creado y guardado: ${nuevoUsuario.idUsuario}');
 
     if (!mounted) return;
 
     Navigator.pop(context, nuevoUsuario);
   }
+
 
   @override
   Widget build(BuildContext context) {

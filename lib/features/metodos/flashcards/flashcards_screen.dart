@@ -2,9 +2,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/providers/theme_provider.dart';
+import '../../../core/services/sesion_service.dart'; 
+import '../../../core/models/sesion.dart';
 
 class FlashcardsScreen extends StatefulWidget {
-  const FlashcardsScreen({Key? key}) : super(key: key);
+  final int? idSesion; // ✅ AGREGAR
+  const FlashcardsScreen({super.key, this.idSesion});
 
   @override
   State<FlashcardsScreen> createState() => _FlashcardsScreenState();
@@ -24,7 +27,8 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
   bool _isFront = true;
   bool _isStudying = false;
   bool _isResting = false;
-
+  int _cardsStudied = 0;
+  
   // Para el descanso
   int _restSeconds = 0;
   Timer? _restTimer;
@@ -54,6 +58,112 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
     );
   }
 
+  Future<void> _finalizarSesion() async {
+    if (widget.idSesion == null) {
+      print('⚠️ No hay idSesion para actualizar');
+      return;
+    }
+    
+    try {
+      print('🔄 Finalizando sesión de Flashcards ${widget.idSesion}...');
+      
+      await SesionService.actualizarEstadoSesion(
+        widget.idSesion!,
+        'finalizada',
+      );
+      
+      print('✅ Sesión ${widget.idSesion} marcada como finalizada');
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Sesión de Flashcards completada'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      print('❌ Error finalizando sesión: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al guardar sesión: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  // ✅ AGREGAR TODO ESTE MÉTODO
+  Widget _buildCompletarButton() {
+    final tp = Provider.of<ThemeProvider>(context);
+    final btnBg = tp.isDarkMode ? tp.cardColor : Colors.white.withOpacity(0.8);
+    
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 20),
+      child: ElevatedButton.icon(
+        onPressed: () async {
+          final confirmar = await showDialog<bool>(
+            context: context,
+            builder: (context) => AlertDialog(
+              backgroundColor: tp.cardColor,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              title: Text(
+                '¿Completar sesión?',
+                style: TextStyle(
+                  color: tp.primaryColor,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              content: Text(
+                'Has estudiado $_cardsStudied cartas en esta sesión.\n\n'
+                '¿Deseas marcar esta sesión como finalizada?',
+                style: TextStyle(color: tp.primaryColor),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: Text(
+                    'Cancelar',
+                    style: TextStyle(color: tp.primaryColor),
+                  ),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: const Text('Completar'),
+                ),
+              ],
+            ),
+          );
+          
+          if (confirmar == true) {
+            await _finalizarSesion();
+            if (mounted) {
+              Navigator.of(context).pop(true);
+            }
+          }
+        },
+        icon: const Icon(Icons.check_circle),
+        label: const Text('Completar Sesión'),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.green,
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      ),
+    );
+  }
   void _showCreateCardDialog() {
     final tp = Provider.of<ThemeProvider>(context, listen: false);
     final frontController = TextEditingController();
@@ -127,14 +237,17 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
       _incorrect.clear();
       _current = 0;
       _isFront = true;
+      _cardsStudied = 0; // ✅ AGREGAR ESTA LÍNEA
     });
   }
+
 
   void _flipCard() => setState(() => _isFront = !_isFront);
 
   void _mark(bool correcto) {
     setState(() {
       if (!correcto) {
+        _cardsStudied++; // ✅ AGREGAR ESTA LÍNEA
         _incorrect.add(_studyDeck[_current]);
       }
       if (_current == _studyDeck.length - 1) {
@@ -286,7 +399,72 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
     final tp = Provider.of<ThemeProvider>(context);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     if (_studyDeck.isEmpty) {
-      return Center(child: Text("¡Bien hecho! Has terminado.", style: TextStyle(color: tp.primaryColor, fontSize: 24)));
+      final btnBg = tp.isDarkMode ? tp.cardColor : Colors.white.withOpacity(0.8);
+      
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.celebration, color: tp.primaryColor, size: 80),
+            const SizedBox(height: 20),
+            Text(
+              "¡Bien hecho!",
+              style: TextStyle(
+                color: tp.primaryColor,
+                fontSize: 32,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              "Has terminado de estudiar",
+              style: TextStyle(color: tp.primaryColor, fontSize: 18),
+            ),
+            Text(
+              "$_cardsStudied cartas completadas",
+              style: TextStyle(
+                color: tp.primaryColor.withOpacity(0.7),
+                fontSize: 16,
+              ),
+            ),
+            const SizedBox(height: 40),
+            
+            if (widget.idSesion != null && _cardsStudied > 0)
+              _buildCompletarButton(),
+            
+            const SizedBox(height: 16),
+            
+            ElevatedButton.icon(
+              onPressed: () {
+                setState(() {
+                  _isStudying = false;
+                  _isResting = false;
+                  _isFront = true;
+                  _studyDeck.clear();
+                  _incorrect.clear();
+                  _current = 0;
+                });
+              },
+              icon: Icon(Icons.menu, color: tp.primaryColor),
+              label: Text(
+                "Volver al menú",
+                style: TextStyle(
+                  color: tp.primaryColor,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: btnBg,
+                padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                elevation: 0,
+              ),
+            ),
+          ],
+        ),
+      );
     }
     Flashcard card = _studyDeck[_current];
     final isFront = _isFront;
@@ -466,29 +644,69 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
   }
 
   Future<bool> _confirmarSalida() async {
+    final tp = Provider.of<ThemeProvider>(context, listen: false);
     final salir = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text("¿Deseas terminar tu sesión?"),
-        content: const Text("Si retrocedes ahora, tu sesión de flashcards terminará."),
+        backgroundColor: tp.cardColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text(
+          "¿Deseas terminar tu sesión?",
+          style: TextStyle(color: tp.primaryColor),
+        ),
+        content: Text(
+          widget.idSesion != null
+              ? "Si sales ahora, esta sesión se marcará como finalizada."
+              : "Si retrocedes ahora, tu sesión de flashcards terminará.",
+          style: TextStyle(color: tp.primaryColor),
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text("No"),
+            child: Text("No", style: TextStyle(color: tp.primaryColor)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text("Sí"),
+            child: Text("Sí", style: TextStyle(color: tp.primaryColor)),
           ),
         ],
       ),
     );
+    
+    // ✅ FINALIZAR SESIÓN SI CONFIRMA SALIR
+    if (salir == true && widget.idSesion != null) {
+      try {
+        print('🔄 Finalizando sesión Flashcards ${widget.idSesion}...');
+        
+        await SesionService.actualizarEstadoSesion(
+          widget.idSesion!,
+          'finalizada',
+        );
+        
+        print('✅ Sesión ${widget.idSesion} finalizada automáticamente');
+        
+        await Future.delayed(const Duration(milliseconds: 300));
+      } catch (e) {
+        print('❌ Error finalizando sesión: $e');
+      }
+    }
+    
     return salir == true;
   }
+
+
 
   @override
   void dispose() {
     _restTimer?.cancel();
+      if (widget.idSesion != null && _cardsStudied > 0) {
+    SesionService.actualizarEstadoSesion(
+      widget.idSesion!,
+      'finalizada',
+    ).catchError((e) {
+      print('Error finalizando sesión en dispose: $e');
+    });
+  }
     super.dispose();
   }
 

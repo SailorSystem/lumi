@@ -8,6 +8,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:pdf/pdf.dart'; // <-- <<-- agrega esto para PdfPageFormat
 import 'package:printing/printing.dart';
 import '../../../core/providers/theme_provider.dart';
+import '../../../core/services/sesion_service.dart';
 
 class MindNode {
   String text;
@@ -17,7 +18,8 @@ class MindNode {
 }
 
 class MentalMapsScreen extends StatefulWidget {
-  const MentalMapsScreen({Key? key}) : super(key: key);
+  final int? idSesion; // ✅ AGREGAR
+  const MentalMapsScreen({Key? key, this.idSesion}) : super(key: key);
 
   @override
   State<MentalMapsScreen> createState() => _MentalMapsScreenState();
@@ -25,7 +27,7 @@ class MentalMapsScreen extends StatefulWidget {
 
 class _MentalMapsScreenState extends State<MentalMapsScreen> {
   MindNode? _rootNode;
-
+  int _nodesCreated = 0;
   // Key para capturar el widget (RepaintBoundary)
   final GlobalKey _mapRepaintKey = GlobalKey();
 
@@ -75,6 +77,127 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
     );
   }
 
+  @override
+  void dispose() {
+    // ✅ AGREGAR: Finalizar automáticamente si creó nodos
+    if (widget.idSesion != null && _nodesCreated > 0) {
+      SesionService.actualizarEstadoSesion(
+        widget.idSesion!,
+        'finalizada',
+      ).catchError((e) {
+        print('Error finalizando sesión en dispose: $e');
+      });
+    }
+    
+    super.dispose();
+  }
+
+  Future<void> _finalizarSesion() async {
+    if (widget.idSesion == null) {
+      print('⚠️ No hay idSesion para actualizar');
+      return;
+    }
+    
+    try {
+      print('🔄 Finalizando sesión de Mapa Mental ${widget.idSesion}...');
+      
+      await SesionService.actualizarEstadoSesion(
+        widget.idSesion!,
+        'finalizada',
+      );
+      
+      print('✅ Sesión ${widget.idSesion} marcada como finalizada');
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Sesión de Mapa Mental completada'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      print('❌ Error finalizando sesión: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al guardar sesión: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  // ✅ AGREGAR TODO ESTE MÉTODO
+  Widget _buildCompletarButton() {
+    final tp = Provider.of<ThemeProvider>(context);
+    final btnBg = tp.isDarkMode ? tp.cardColor : Colors.white.withOpacity(0.9);
+    
+    return Padding(
+      padding: const EdgeInsets.all(20),
+      child: ElevatedButton.icon(
+        onPressed: () async {
+          final confirmar = await showDialog<bool>(
+            context: context,
+            builder: (context) => AlertDialog(
+              backgroundColor: tp.cardColor,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              title: Text(
+                '¿Completar sesión?',
+                style: TextStyle(
+                  color: tp.primaryColor,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              content: Text(
+                'Has creado $_nodesCreated nodos en tu mapa mental.\n\n'
+                '¿Deseas marcar esta sesión como finalizada?',
+                style: TextStyle(color: tp.primaryColor),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: Text(
+                    'Cancelar',
+                    style: TextStyle(color: tp.primaryColor),
+                  ),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: const Text('Completar'),
+                ),
+              ],
+            ),
+          );
+          
+          if (confirmar == true) {
+            await _finalizarSesion();
+            if (mounted) {
+              Navigator.of(context).pop(true);
+            }
+          }
+        },
+        icon: const Icon(Icons.check_circle),
+        label: const Text('Completar Sesión'),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.green,
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      ),
+    );
+  }
   // Diálogo para crear un nodo (tema central o subtema)
   Future<MindNode?> _askNode({String title = "Tema o Subtema"}) async {
     final tp = Provider.of<ThemeProvider>(context, listen: false);
@@ -133,9 +256,13 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
   void _createRootNode() async {
     MindNode? root = await _askNode(title: "Tema central");
     if (root != null) {
-      setState(() => _rootNode = root);
+      setState(() {
+        _rootNode = root;
+        _nodesCreated++; // ✅ AGREGAR ESTA LÍNEA
+      });
     }
   }
+
 
   // Añadir subnodo a cualquier nodo
   void _addChildNode(MindNode parent) async {
@@ -143,9 +270,11 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
     if (child != null) {
       setState(() {
         parent.children = List<MindNode>.from(parent.children)..add(child);
+        _nodesCreated++; // ✅ AGREGAR ESTA LÍNEA
       });
     }
   }
+
 
   // Export a PDF como captura (imagen) del widget visible del mapa
   Future<void> _exportPdf() async {
@@ -307,16 +436,52 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
       context: context,
       builder: (_) => AlertDialog(
         backgroundColor: tp.backgroundColor,
-        title: Text("¿Deseas terminar?", style: TextStyle(color: tp.primaryColor)),
-        content: Text("Si retrocedes ahora, perderás el mapa actual.", style: TextStyle(color: tp.primaryColor)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text(
+          "¿Deseas terminar?",
+          style: TextStyle(color: tp.primaryColor),
+        ),
+        content: Text(
+          widget.idSesion != null
+              ? "Si sales ahora, esta sesión se marcará como finalizada y perderás el mapa actual."
+              : "Si retrocedes ahora, perderás el mapa actual.",
+          style: TextStyle(color: tp.primaryColor),
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: Text("No", style: TextStyle(color: tp.primaryColor))),
-          TextButton(onPressed: () => Navigator.pop(context, true), child: Text("Sí", style: TextStyle(color: tp.primaryColor))),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text("No", style: TextStyle(color: tp.primaryColor)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text("Sí", style: TextStyle(color: tp.primaryColor)),
+          ),
         ],
       ),
     );
+    
+    // ✅ FINALIZAR SESIÓN SI CONFIRMA SALIR
+    if (salir == true && widget.idSesion != null) {
+      try {
+        print('🔄 Finalizando sesión Mapa Mental ${widget.idSesion}...');
+        
+        await SesionService.actualizarEstadoSesion(
+          widget.idSesion!,
+          'finalizada',
+        );
+        
+        print('✅ Sesión ${widget.idSesion} finalizada automáticamente');
+        
+        await Future.delayed(const Duration(milliseconds: 300));
+      } catch (e) {
+        print('❌ Error finalizando sesión: $e');
+      }
+    }
+    
     return salir == true;
   }
+
+
 
   @override
   Widget build(BuildContext context) {
@@ -350,6 +515,59 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
                 icon: Icon(Icons.refresh, color: tp.primaryColor),
                 tooltip: "Nuevo mapa",
                 onPressed: _createRootNode,
+              ),
+            // ✅ AGREGAR ESTAS LÍNEAS
+            if (widget.idSesion != null && _nodesCreated > 0)
+              IconButton(
+                icon: const Icon(Icons.check_circle, color: Colors.green),
+                tooltip: "Completar Sesión",
+                onPressed: () async {
+                  final confirmar = await showDialog<bool>(
+                    context: context,
+                    builder: (context) => AlertDialog(
+                      backgroundColor: tp.cardColor,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      title: Text(
+                        '¿Completar sesión?',
+                        style: TextStyle(
+                          color: tp.primaryColor,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      content: Text(
+                        'Has creado $_nodesCreated nodos en tu mapa mental.\n\n'
+                        '¿Deseas marcar esta sesión como finalizada?',
+                        style: TextStyle(color: tp.primaryColor),
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(context, false),
+                          child: Text(
+                            'Cancelar',
+                            style: TextStyle(color: tp.primaryColor),
+                          ),
+                        ),
+                        ElevatedButton(
+                          onPressed: () => Navigator.pop(context, true),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green,
+                            foregroundColor: Colors.white,
+                          ),
+                          child: const Text('Completar'),
+                        ),
+                      ],
+                    ),
+                  );
+                  
+                  if (confirmar == true) {
+                    await _finalizarSesion();
+                    if (mounted) {
+                      Navigator.of(context).pop(true);
+                    }
+                  }
+                },
               ),
           ],
           // Gradiente igual que Home (stops 0.0, 0.35, 1.0)

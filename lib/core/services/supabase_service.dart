@@ -29,11 +29,19 @@ class SupabaseService {
 
   /// Actualiza un registro existente y devuelve la fila modificada.
   static Future<List<Map<String, dynamic>>> update(
-      String table, String idField, int id, Map<String, dynamic> data) async {
-    final response =
-        await client.from(table).update(data).eq(idField, id).select();
+    String table,
+    String idField,
+    int id,
+    Map<String, dynamic> data,
+  ) async {
+    final response = await client
+        .from(table)
+        .update(data)
+        .eq(idField, id)
+        .select(); // ✅ IMPORTANTE: Debe tener .select()
     return List<Map<String, dynamic>>.from(response);
   }
+
 
   /// Elimina un registro por ID.
   static Future<void> delete(String table, String idField, int id) async {

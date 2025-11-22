@@ -127,35 +127,45 @@ class _StartScreenState extends State<StartScreen> {
     );
   }
 
-  void _startSession() {
+  // En start_screen.dart - método startSession()
+  void startSession() {
     if (sesion == null || sesion!.idMetodo == null) return;
-
+    
     switch (sesion!.idMetodo) {
       case 1: // Pomodoro
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (_) => const PomodoroScreen()),
+          MaterialPageRoute(
+            builder: (_) => PomodoroScreen(idSesion: sesion!.idSesion),
+          ),
         );
-        break;
+        break; // ✅ IMPORTANTE
+        
       case 2: // Flashcards
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (_) => const FlashcardsScreen()),
+          MaterialPageRoute(
+            builder: (_) => FlashcardsScreen(idSesion: sesion!.idSesion),
+          ),
         );
-        break;
+        break; // ✅ IMPORTANTE
+        
       case 3: // Mapa Mental
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (_) => const MentalMapsScreen()),
+          MaterialPageRoute(
+            builder: (_) => MentalMapsScreen(idSesion: sesion!.idSesion),
+          ),
         );
-        break;
+        break; // ✅ IMPORTANTE
+        
       default:
-        // método desconocido: mostrar aviso
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Método no soportado')),
+          SnackBar(content: Text('Método ${sesion!.idMetodo} no reconocido')),
         );
     }
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -235,7 +245,7 @@ class _StartScreenState extends State<StartScreen> {
                       width: 140,
                       height: 48,
                       child: ElevatedButton.icon(
-                        onPressed: (sesion!.idMetodo != null) ? _startSession : null,
+                        onPressed: (sesion!.idMetodo != null) ? startSession : null,
                         icon: Icon(Icons.play_arrow, size: 20, color: Colors.white),
                         label: Text('Sí', style: const TextStyle(color: Colors.white)),
                         style: ElevatedButton.styleFrom(

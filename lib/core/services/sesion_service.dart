@@ -36,4 +36,35 @@ class SesionService {
   static Future<void> eliminarSesion(int idSesion) async {
     await SupabaseService.delete(table, 'id_sesion', idSesion);
   }
+
+    // ✅ NUEVO: Actualizar estado de sesión
+  static Future<void> actualizarEstadoSesion(int idSesion, String nuevoEstado) async {
+    try {
+      print('🔄 Actualizando sesión $idSesion a estado: $nuevoEstado');
+      
+      final response = await SupabaseService.client
+          .from(table)
+          .update({'estado': nuevoEstado})
+          .eq('id_sesion', idSesion)
+          .select(); // ✅ IMPORTANTE: Agregar .select()
+      
+      print('✅ Respuesta de Supabase: $response');
+      print('✅ Sesión $idSesion actualizada a estado: $nuevoEstado');
+    } catch (e) {
+      print('❌ Error actualizando estado de sesión: $e');
+      rethrow;
+    }
+  }
+
+  
+  // ✅ NUEVO: Actualizar sesión completa con múltiples campos
+  static Future<void> actualizarSesion(int idSesion, Map<String, dynamic> cambios) async {
+    try {
+      await SupabaseService.update(table, 'id_sesion', idSesion, cambios);
+      print('✅ Sesión $idSesion actualizada: $cambios');
+    } catch (e) {
+      print('❌ Error actualizando sesión: $e');
+      rethrow;
+    }
+  }
 }

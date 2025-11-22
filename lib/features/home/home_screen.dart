@@ -31,7 +31,6 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-
 class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   static const _bg = Color(0xFFD9CBBE);
   static const _bar = Color(0xFFB49D87);
@@ -41,6 +40,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   DateTime? _inicio;
   Timer? _tiempoUsoTimer;
   int _segundosAcumulados = 0;
+  Timer? _verificadorSesiones; // ✅ Timer para verificar sesiones incompletas
 
   List<Sesion> _completedSessions = [];
   late final AnimationController _pulse;
@@ -77,6 +77,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       _checkFirstTime();
     });
 
+    // ✅ AGREGAR: Verificador automático cada 1 minuto
+    _verificadorSesiones = Timer.periodic(
+      const Duration(minutes: 1),
+      (_) => _marcarSesionesIncompletas().then((_) => _loadCompletedSessions()),
+    );
+
     // INICIO DE MEDICIÓN DE TIEMPO
     WidgetsBinding.instance.addObserver(this);
     _inicio = DateTime.now();
@@ -88,6 +94,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     _pulse.dispose();
     _quoteTimer?.cancel();
     _tiempoUsoTimer?.cancel();
+    _verificadorSesiones?.cancel(); // ✅ Cancelar el verificador
 
     WidgetsBinding.instance.removeObserver(this);
     _enviarTiempoUsoFinal(); // Envía el tiempo pendiente al cerrar
@@ -126,7 +133,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       }
     }
   }
-  
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -135,29 +141,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     }
   }
 
-  Future<void> _loadUser() async {
-    final prefs = await SharedPreferences.getInstance();
-    final userId = prefs.getInt("user_id");
-
-    if (userId == null) return;
-
-    // 🔥 Leer desde Supabase (fuente real)
-    final nombre = await UsuarioService.obtenerNombre(userId);
-
-    if (nombre != null) {
-      _userName = nombre;
-      await prefs.setString("user_name", nombre);
-    } else {
-      // fallback
-      _userName = prefs.getString("user_name") ?? "Nay";
-    }
-
-    if (mounted) setState(() {});
-  }
-  
   Future<void> _loadUserData() async {
     final prefs = await SharedPreferences.getInstance();
-    _userId = prefs.getInt('user_id');   // 🔥 carga el id real desde Supabase login
+    _userId = prefs.getInt('user_id');
 
     if (_userId == null) {
       print("❌ No hay user_id en SharedPreferences");
@@ -176,22 +162,112 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     if (mounted) setState(() {});
   }
 
-
+  /// Marca las sesiones pasadas como incompletas
+  Future<void> _marcarSesionesIncompletas() async {
+    if (_userId == null) return; // ✅ CORREGIDO: usar _userId con guion bajo
+    
+    try {
+      final ahora = DateTime.now();
+      
+      // Obtener sesiones programadas que ya pasaron su hora
+      final response = await Supabase.instance.client
+          .from('sesiones')
+          .select()
+          .eq('id_usuario', _userId!) // ✅ CORREGIDO
+          .eq('estado', 'programada')
+          .lt('fecha', ahora.toIso8601String()); // Sesiones cuya fecha ya pasó
+      
+      final sesionesPasadas = (response as List)
+          .map((json) => Sesion.fromMap(json))
+          .toList();
+      
+      print('🔍 Sesiones pasadas encontradas: ${sesionesPasadas.length}');
+      
+      // Actualizar cada sesión pasada a "incompleta"
+      for (final sesion in sesionesPasadas) {
+        await SesionService.actualizarEstadoSesion(
+          sesion.idSesion!,
+          'incompleta',
+        );
+        print('⚠️ Sesión ${sesion.idSesion} marcada como incompleta');
+      }
+      
+      if (sesionesPasadas.isNotEmpty) {
+        print('✅ ${sesionesPasadas.length} sesiones marcadas como incompletas');
+      }
+    } catch (e) {
+      print('❌ Error marcando sesiones incompletas: $e');
+    }
+  }
 
   Future<void> _loadCompletedSessions() async {
+    print('🔄 Cargando sesiones programadas...');
+    
     final prefs = await SharedPreferences.getInstance();
-    final userId = prefs.getInt("user_id");
+    final userId = prefs.getInt('user_id');
+    
+    if (userId == null) {
+      print('❌ No hay user_id en SharedPreferences');
+      return;
+    }
 
-    if (userId == null) return;
+    print('👤 UserID: $userId');
 
-    final sesiones = await SesionService.obtenerSesionesProgramadas(userId);
+    try {
+      // ✅ PRIMERO: Marcar sesiones pasadas como incompletas
+      await _marcarSesionesIncompletas();
+      
+      // ✅ SEGUNDO: Cargar solo sesiones programadas (presente y futuras)
+      final ahora = DateTime.now();
+      
+      print('🌐 Cargando desde Supabase...');
+      
+      final response = await Supabase.instance.client
+          .from('sesiones')
+          .select()
+          .eq('id_usuario', userId)
+          .eq('estado', 'programada')
+          .gte('fecha', ahora.toIso8601String()) // ✅ Solo sesiones futuras
+          .order('fecha', ascending: true); // Ordenar por fecha ascendente
+      
+      print('📦 Respuesta de Supabase: ${response.length} sesiones programadas');
 
-    if (!mounted) return;
+      final sesiones = (response as List)
+          .map((json) => Sesion.fromMap(json))
+          .toList();
 
-    setState(() {
-      _completedSessions = sesiones;
-      _applyFilter(); // 🔥 aplicar filtro inicial
-    });
+      print('✅ Sesiones programadas parseadas: ${sesiones.length}');
+
+      if (!mounted) return;
+
+      setState(() {
+        _completedSessions = sesiones;
+      });
+
+      print('📊 Sesiones mostradas en Home: ${_completedSessions.length}');
+    } catch (e) {
+      print('❌ Error cargando sesiones: $e');
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al cargar sesiones: $e'),
+            backgroundColor: Colors.red,
+            action: SnackBarAction(
+              label: 'REINTENTAR',
+              textColor: Colors.white,
+              onPressed: _loadCompletedSessions,
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  // ✅ NUEVO MÉTODO: Recargar sesiones con pull-to-refresh
+  Future<void> _refreshSessions() async {
+    print('🔃 Recargando sesiones (pull-to-refresh)...');
+    await _loadCompletedSessions();
   }
 
   // ---------------------- FILTRO ----------------------
@@ -257,15 +333,33 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             onPressed: () async {
               if (_userId == null) {
                 print("❌ Usuario NULL al abrir ajustes");
-                return;
+                
+                // ✅ INTENTAR RECUPERAR EL USER_ID
+                final prefs = await SharedPreferences.getInstance();
+                _userId = prefs.getInt('user_id');
+                
+                if (_userId == null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Error: No se pudo cargar el usuario. Reinicia la app.'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                  return;
+                }
               }
+              
               final refresh = await Navigator.push(
                 context,
                 MaterialPageRoute(
                   builder: (_) => SettingsScreen(idUsuario: _userId!),
                 ),
               );
-              if (refresh == true) _loadUserData();
+              
+              if (refresh == true) {
+                _loadUserData();
+                _loadCompletedSessions();
+              }
             },
           ),
         ],
@@ -295,138 +389,172 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
       body: Stack(
         children: [
-          SingleChildScrollView(
-            child: Column(
-              children: [
-                _headerHero(),
+          // ✅ AGREGADO: RefreshIndicator para pull-to-refresh
+          RefreshIndicator(
+            onRefresh: _refreshSessions,
+            color: themeProvider.primaryColor,
+            child: SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(), // ✅ Importante para que funcione el refresh
+              child: Column(
+                children: [
+                  _headerHero(),
 
-                Center(
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(maxWidth: maxBody),
-                    child: Column(
-                      children: [
-                        const SizedBox(height: 4),
+                  Center(
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(maxWidth: maxBody),
+                      child: Column(
+                        children: [
+                          const SizedBox(height: 4),
 
-                        // ------------------------ BOTONES ------------------------
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: _pillButton(
-                                  icon: Icons.flash_on,
-                                  label: 'Sesión rápida',
-                                  onTap: () => Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                          builder: (_) =>
-                                              const SesionRapidaScreen())),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: _pillButton(
-                                  icon: Icons.add_task,
-                                  label: 'Nueva sesión',
-                                  onTap: () => Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                        builder: (_) =>
-                                            const CrearNuevaSesionScreen()),
+                          // ------------------------ BOTONES ------------------------
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: _pillButton(
+                                    icon: Icons.flash_on,
+                                    label: 'Sesión rápida',
+                                    onTap: () async {
+                                      await Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) => const SesionRapidaScreen(),
+                                        ),
+                                      );
+                                      // ✅ Recargar al volver
+                                      _loadCompletedSessions();
+                                    },
                                   ),
                                 ),
-                              ),
-                            ],
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: _pillButton(
+                                    icon: Icons.add_task,
+                                    label: 'Nueva sesión',
+                                    onTap: () async {
+                                      await Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) => const CrearNuevaSesionScreen(),
+                                        ),
+                                      );
+                                      // ✅ Recargar al volver
+                                      _loadCompletedSessions();
+                                    },
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
 
-                        const SizedBox(height: 16),
+                          const SizedBox(height: 16),
 
-                        // ------------------- TÍTULO + FILTRO -------------------
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              // TITULO
-                              Text(
-                                "Sesiones programadas",
-                                style: TextStyle(
-                                  fontSize: 22,
-                                  fontWeight: FontWeight.bold,
-                                  color: Theme.of(context).textTheme.bodyLarge?.color,
+                          // ------------------- TÍTULO + FILTRO -------------------
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                // TITULO
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(
+                                      "Sesiones programadas",
+                                      style: TextStyle(
+                                        fontSize: 22,
+                                        fontWeight: FontWeight.bold,
+                                        color: Theme.of(context).textTheme.bodyLarge?.color,
+                                      ),
+                                    ),
+                                    // ✅ Botón de recarga manual
+                                    IconButton(
+                                      icon: Icon(
+                                        Icons.refresh,
+                                        color: themeProvider.primaryColor,
+                                      ),
+                                      onPressed: _refreshSessions,
+                                      tooltip: 'Recargar sesiones',
+                                    ),
+                                  ],
                                 ),
-                              ),
 
-                              const SizedBox(height: 6),
+                                const SizedBox(height: 6),
 
-                              // BOTÓN FILTRO – AHORA ABAJO DEL TEXTO
-                              Align(
-                                alignment: Alignment.centerLeft,
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                  decoration: BoxDecoration(
-                                    color: Colors.teal.shade100.withOpacity(0.4),
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: DropdownButtonHideUnderline(
-                                    child: DropdownButton<String>(
-                                      value: _selectedFilter,
-                                      icon: const Icon(Icons.filter_alt, color: Colors.teal),
-                                      items: [
-                                        "Más reciente",
-                                        "Más antiguo",
-                                        "A-Z",
-                                        "Z-A"
-                                      ].map((filter) {
-                                        return DropdownMenuItem<String>(
-                                          value: filter,
-                                          child: Text(
-                                            filter,
-                                            style: const TextStyle(
-                                              color: Colors.teal,
-                                              fontWeight: FontWeight.w600,
+                                // BOTÓN FILTRO
+                                Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                    decoration: BoxDecoration(
+                                      color: themeProvider.primaryColor.withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: DropdownButtonHideUnderline(
+                                      child: DropdownButton<String>(
+                                        value: _selectedFilter,
+                                        icon: Icon(Icons.filter_alt, color: themeProvider.primaryColor),
+                                        dropdownColor: themeProvider.cardColor,
+                                        style: TextStyle(
+                                          color: themeProvider.textColor,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                        items: [
+                                          "Más reciente",
+                                          "Más antiguo",
+                                          "A-Z",
+                                          "Z-A"
+                                        ].map((filter) {
+                                          return DropdownMenuItem<String>(
+                                            value: filter,
+                                            child: Text(
+                                              filter,
+                                              style: TextStyle(
+                                                color: themeProvider.primaryColor,
+                                                fontWeight: FontWeight.w600,
+                                              ),
                                             ),
-                                          ),
-                                        );
-                                      }).toList(),
-                                      onChanged: (value) {
-                                        setState(() {
-                                          _selectedFilter = value!;
-                                          _applyFilter();
-                                        });
-                                      },
+                                          );
+                                        }).toList(),
+                                        onChanged: (value) {
+                                          setState(() {
+                                            _selectedFilter = value!;
+                                            _applyFilter();
+                                          });
+                                        },
+                                      ),
                                     ),
                                   ),
                                 ),
-                              ),
 
-                              const SizedBox(height: 20),
-                            ],
-                          )
-                        ),
+                                const SizedBox(height: 20),
+                              ],
+                            )
+                          ),
 
-                        const SizedBox(height: 8),
+                          const SizedBox(height: 8),
 
-                        // ---------------------- LISTA ----------------------
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          child: _completedSessions.isEmpty
-                              ? _emptyState()
-                              : Column(
-                                  children: _completedSessions
-                                      .take(50)
-                                      .map((s) => _sessionTile(context, s))
-                                      .toList(),
-                                ),
-                        ),
+                          // ---------------------- LISTA ----------------------
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            child: _completedSessions.isEmpty
+                                ? _emptyState()
+                                : Column(
+                                    children: _completedSessions
+                                        .take(50)
+                                        .map((s) => _sessionTile(context, s))
+                                        .toList(),
+                                  ),
+                          ),
 
-                        const SizedBox(height: 120),
-                      ],
+                          const SizedBox(height: 120),
+                        ],
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ],
@@ -446,24 +574,24 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       child: Container(
         width: double.infinity,
         padding: const EdgeInsets.fromLTRB(16, 90, 16, 30),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: themeProvider.isDarkMode
-              ? [
-                  const Color(0xFF212C36),
-                  const Color(0xFF313940),
-                  themeProvider.backgroundColor,
-                ]
-              : [
-                  const Color(0xFFB6C9D6),
-                  const Color(0xFFE6DACA),
-                  themeProvider.backgroundColor,
-                ],
-          stops: [0.0, 0.35, 1.0],
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: themeProvider.isDarkMode
+                ? [
+                    const Color(0xFF212C36),
+                    const Color(0xFF313940),
+                    themeProvider.backgroundColor,
+                  ]
+                : [
+                    const Color(0xFFB6C9D6),
+                    const Color(0xFFE6DACA),
+                    themeProvider.backgroundColor,
+                  ],
+            stops: [0.0, 0.35, 1.0],
+          ),
         ),
-      ),
 
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -601,7 +729,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
   }
 
-
   // ------------------------- ITEM DE SESIÓN -------------------------
   Widget _sessionTile(BuildContext context, Sesion session) {
     return Container(
@@ -610,7 +737,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         leading: CircleAvatar(
           backgroundColor: Colors.blueGrey.withOpacity(0.25),
           child:
-              Icon(Icons.access_time,   color: Theme.of(context).textTheme.bodyLarge?.color,size: 22),
+              Icon(Icons.access_time, color: Theme.of(context).textTheme.bodyLarge?.color, size: 22),
         ),
         title: Text(
           session.nombreSesion,
@@ -619,7 +746,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         ),
         subtitle: Text(
           session.fecha.toString().substring(0, 16),
-          style: TextStyle(  color: Theme.of(context).textTheme.bodyLarge?.color,),
+          style: TextStyle(color: Theme.of(context).textTheme.bodyLarge?.color),
         ),
         trailing: const Icon(Icons.chevron_right),
 
@@ -656,7 +783,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   // ----------------- PRIMERA VEZ --------------------
   Future<void> _checkFirstTime() async {
-
     final prefs = await SharedPreferences.getInstance();
     final userName = prefs.getString("user_name");
 
