@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../../../core/providers/theme_provider.dart';
 
 class FlashcardsScreen extends StatefulWidget {
   const FlashcardsScreen({Key? key}) : super(key: key);
@@ -15,10 +17,6 @@ class Flashcard {
 }
 
 class _FlashcardsScreenState extends State<FlashcardsScreen> {
-  static const _bg = Color(0xFFD9CBBE);
-  static const _bar = Color(0xFFB49D87);
-  static const _primary = Color(0xFF2C4459);
-
   final List<Flashcard> _flashcards = [];
   final List<Flashcard> _incorrect = [];
   List<Flashcard> _studyDeck = [];
@@ -32,23 +30,24 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
   Timer? _restTimer;
 
   void _showInfoDialog() {
+    final tp = Provider.of<ThemeProvider>(context, listen: false);
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        backgroundColor: _bg,
+        backgroundColor: tp.backgroundColor,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        title: const Text(
+        title: Text(
           "¿Cómo funciona?",
-          style: TextStyle(fontWeight: FontWeight.bold, color: _primary),
+          style: TextStyle(fontWeight: FontWeight.bold, color: tp.primaryColor),
         ),
-        content: const Text(
+        content: Text(
           "Crea cartas con términos o preguntas. Estudia volteando cada carta. Si te equivocas, la carta se repite más adelante. Descansa si lo necesitas, y vuelve cuando estés listo.",
-          style: TextStyle(color: _primary, height: 1.4),
+          style: TextStyle(color: tp.primaryColor, height: 1.4),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text("Entendido", style: TextStyle(color: _primary)),
+            child: Text("Entendido", style: TextStyle(color: tp.primaryColor)),
           ),
         ],
       ),
@@ -56,24 +55,25 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
   }
 
   void _showCreateCardDialog() {
+    final tp = Provider.of<ThemeProvider>(context, listen: false);
     final frontController = TextEditingController();
     final backController = TextEditingController();
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        backgroundColor: _bg,
+        backgroundColor: tp.backgroundColor,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        title: const Text("Crear nueva carta", style: TextStyle(color: _primary, fontWeight: FontWeight.bold)),
+        title: Text("Crear nueva carta", style: TextStyle(color: tp.primaryColor, fontWeight: FontWeight.bold)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             TextField(
               controller: frontController,
               maxLength: 24,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 labelText: "Palabra (frontal)",
                 hintText: "Máximo 2 palabras",
-                labelStyle: TextStyle(color: _primary),
+                labelStyle: TextStyle(color: tp.primaryColor),
               ),
             ),
             TextField(
@@ -81,9 +81,9 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
               minLines: 2,
               maxLines: 3,
               maxLength: 80,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 labelText: "Definición (reverso)",
-                labelStyle: TextStyle(color: _primary),
+                labelStyle: TextStyle(color: tp.primaryColor),
               ),
             ),
           ],
@@ -91,7 +91,7 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text("Cancelar", style: TextStyle(color: _primary)),
+            child: Text("Cancelar", style: TextStyle(color: tp.primaryColor)),
           ),
           TextButton(
             onPressed: () {
@@ -105,7 +105,7 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
                 Navigator.pop(context);
               }
             },
-            child: const Text("Crear", style: TextStyle(color: _primary)),
+            child: Text("Crear", style: TextStyle(color: tp.primaryColor)),
           ),
         ],
       ),
@@ -157,16 +157,17 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
 
   // Descanso con contador
   void _startRest() async {
+    final tp = Provider.of<ThemeProvider>(context, listen: false);
     final option = await showDialog<String>(
       context: context,
       builder: (_) => SimpleDialog(
-        title: const Text('¿Cómo deseas descansar?'),
+        title: Text('¿Cómo deseas descansar?', style: TextStyle(color: tp.primaryColor)),
         children: [
           SimpleDialogOption(
-              child: const Text('Por periodo de tiempo'),
+              child: Text('Por periodo de tiempo', style: TextStyle(color: tp.primaryColor)),
               onPressed: () => Navigator.pop(context, 'period')),
           SimpleDialogOption(
-              child: const Text('Hasta cierta hora'),
+              child: Text('Hasta cierta hora', style: TextStyle(color: tp.primaryColor)),
               onPressed: () => Navigator.pop(context, 'hour'))
         ],
       ),
@@ -179,27 +180,32 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
         builder: (_) {
           int minutes = 5;
           return StatefulBuilder(
-            builder: (ctx, setSheetState) => Container(
-              padding: const EdgeInsets.all(18),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text("¿Cuántos minutos quieres descansar?", style: TextStyle(fontWeight: FontWeight.bold)),
-                  Slider(
-                    value: minutes.toDouble(),
-                    divisions: 23,
-                    min: 5,
-                    max: 60,
-                    label: "$minutes min",
-                    onChanged: (v) => setSheetState(() => minutes = v.round()),
-                  ),
-                  ElevatedButton(
-                    onPressed: () => Navigator.pop(ctx, Duration(minutes: minutes)),
-                    child: const Text('Comenzar Descanso'),
-                  )
-                ],
-              ),
-            ),
+            builder: (ctx, setSheetState) {
+              final tpSheet = Provider.of<ThemeProvider>(ctx, listen: false);
+              return Container(
+                padding: const EdgeInsets.all(18),
+                color: tpSheet.backgroundColor,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text("¿Cuántos minutos quieres descansar?", style: TextStyle(fontWeight: FontWeight.bold, color: tpSheet.primaryColor)),
+                    Slider(
+                      value: minutes.toDouble(),
+                      divisions: 23,
+                      min: 5,
+                      max: 60,
+                      label: "$minutes min",
+                      onChanged: (v) => setSheetState(() => minutes = v.round()),
+                    ),
+                    ElevatedButton(
+                      onPressed: () => Navigator.pop(ctx, Duration(minutes: minutes)),
+                      child: Text('Comenzar Descanso', style: TextStyle(color: tpSheet.primaryColor)),
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.white.withOpacity(0.9)),
+                    )
+                  ],
+                ),
+              );
+            },
           );
         },
       );
@@ -241,6 +247,7 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
 
   // Descanso: vista con contador
   Widget _restingView() {
+    final tp = Provider.of<ThemeProvider>(context);
     int mins = _restSeconds ~/ 60;
     int secs = _restSeconds % 60;
     String timeStr = '${mins.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}';
@@ -248,20 +255,20 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(Icons.bedtime, color: _primary, size: 60),
+          Icon(Icons.bedtime, color: tp.primaryColor, size: 60),
           const SizedBox(height: 16),
-          Text("Descansando...\nRelájate y respira :)", textAlign: TextAlign.center, style: const TextStyle(fontSize: 22, color: _primary)),
+          Text("Descansando...\nRelájate y respira :)", textAlign: TextAlign.center, style: TextStyle(fontSize: 22, color: tp.primaryColor)),
           const SizedBox(height: 26),
-          Text("Tiempo restante", style: const TextStyle(fontSize: 16, color: _primary, fontWeight: FontWeight.bold)),
+          Text("Tiempo restante", style: TextStyle(fontSize: 16, color: tp.primaryColor, fontWeight: FontWeight.bold)),
           Text(
             timeStr,
-            style: const TextStyle(fontSize: 34, color: _primary, fontWeight: FontWeight.bold),
+            style: TextStyle(fontSize: 34, color: tp.primaryColor, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 12),
           ElevatedButton.icon(
             onPressed: _finishRestEarly,
-            icon: const Icon(Icons.play_arrow, color: _primary),
-            label: const Text("Terminar descanso"),
+            icon: Icon(Icons.play_arrow, color: tp.primaryColor),
+            label: Text("Terminar descanso", style: TextStyle(color: tp.primaryColor)),
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.white.withOpacity(0.85),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -276,11 +283,19 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
 
   // Vista de la carta y botones
   Widget _studyView() {
+    final tp = Provider.of<ThemeProvider>(context);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     if (_studyDeck.isEmpty) {
-      return const Center(child: Text("¡Bien hecho! Has terminado.", style: TextStyle(color: _primary, fontSize: 24)));
+      return Center(child: Text("¡Bien hecho! Has terminado.", style: TextStyle(color: tp.primaryColor, fontSize: 24)));
     }
     Flashcard card = _studyDeck[_current];
     final isFront = _isFront;
+
+    final frontColor = isDark ? Colors.grey.shade800 : const Color(0xFFF8F6F1);
+    final backColor = isDark ? Colors.grey.shade700 : const Color(0xFFE8E0D2);
+    final largeBtnBg = tp.isDarkMode ? tp.cardColor : Colors.white.withOpacity(0.8);
+    final smallBtnBg = tp.isDarkMode ? tp.cardColor : Colors.white.withOpacity(0.9);
+
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -294,12 +309,10 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
               width: 270,
               height: 160,
               decoration: BoxDecoration(
-                color: isFront
-                    ? const Color(0xFFF8F6F1)
-                    : const Color(0xFFE8E0D2),
+                color: isFront ? frontColor : backColor,
                 borderRadius: BorderRadius.circular(18),
-                boxShadow: [BoxShadow(color: _primary.withOpacity(0.12), blurRadius: 11, offset: const Offset(0, 4))],
-                border: Border.all(color: _primary, width: 2),
+                boxShadow: [BoxShadow(color: tp.primaryColor.withOpacity(0.12), blurRadius: 11, offset: const Offset(0, 4))],
+                border: Border.all(color: tp.primaryColor, width: 2),
               ),
               alignment: Alignment.center,
               child: Padding(
@@ -313,61 +326,64 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
                       style: TextStyle(
                         fontSize: isFront ? 27 : 19,
                         fontWeight: isFront ? FontWeight.bold : FontWeight.normal,
-                        color: _primary,
+                        color: tp.primaryColor,
                       ),
                     ),
-                  if (!isFront)
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Expanded(
-                          child: ElevatedButton.icon(
-                            onPressed: () => _mark(true),
-                            icon: const Icon(Icons.check, color: Colors.green),
-                            label: const Text(
-                              "Acerté",
-                              style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
-                              overflow: TextOverflow.ellipsis, // opción extra
+                    if (!isFront)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 16),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                onPressed: () => _mark(true),
+                                icon: const Icon(Icons.check, color: Colors.green),
+                                label: Text(
+                                  "Acerté",
+                                  style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: smallBtnBg,
+                                  elevation: 0,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+                                ),
+                              ),
                             ),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.white.withOpacity(0.9),
-                              elevation: 0,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12), // Ajusta padding
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                onPressed: () => _mark(false),
+                                icon: const Icon(Icons.close, color: Colors.redAccent),
+                                label: Text(
+                                  "Fallé",
+                                  style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: smallBtnBg,
+                                  elevation: 0,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+                                ),
+                              ),
                             ),
-                          ),
+                          ],
                         ),
-                        const SizedBox(width: 12), // Reduce el espacio entre botones
-                        Expanded(
-                          child: ElevatedButton.icon(
-                            onPressed: () => _mark(false),
-                            icon: const Icon(Icons.close, color: Colors.redAccent),
-                            label: const Text(
-                              "Fallé",
-                              style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold),
-                              overflow: TextOverflow.ellipsis, // opción extra
-                            ),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.white.withOpacity(0.9),
-                              elevation: 0,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12), // Ajusta padding
-                            ),
-                          ),
-                        ),
-                      ],
-                    )
+                      )
                   ],
                 ),
               ),
             ),
           ),
           const SizedBox(height: 32),
-          Text(_isFront ? "Toca la carta para ver la definición." : "¿La sabías?", style: const TextStyle(color: _primary, fontSize: 16)),
+          Text(_isFront ? "Toca la carta para ver la definición." : "¿La sabías?", style: TextStyle(color: tp.primaryColor, fontSize: 16)),
           if (_studyDeck.isNotEmpty)
             Text(
               "Carta ${_current + 1} / ${_studyDeck.length}",
-              style: const TextStyle(color: _primary),
+              style: TextStyle(color: tp.primaryColor),
             ),
           const SizedBox(height: 30),
           ElevatedButton.icon(
@@ -381,10 +397,10 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
                 _current = 0;
               });
             },
-            icon: const Icon(Icons.menu, color: _primary),
-            label: const Text("Volver al menú", style: TextStyle(color: _primary, fontWeight: FontWeight.w700)),
+            icon: Icon(Icons.menu, color: tp.primaryColor),
+            label: Text("Volver al menú", style: TextStyle(color: tp.primaryColor, fontWeight: FontWeight.w700)),
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.white.withOpacity(0.8),
+              backgroundColor: largeBtnBg,
               padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
               elevation: 0,
@@ -396,23 +412,25 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
   }
 
   Widget _mainMenuView() {
+    final tp = Provider.of<ThemeProvider>(context);
+    final btnBg = tp.isDarkMode ? tp.cardColor : Colors.white.withOpacity(0.8);
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           _flashcards.isEmpty
-              ? const Text("No tienes cartas aún.", style: TextStyle(color: _primary, fontSize: 16))
+              ? Text("No tienes cartas aún.", style: TextStyle(color: tp.primaryColor, fontSize: 16))
               : Text(
                   "Tienes ${_flashcards.length} cartas creadas",
-                  style: const TextStyle(color: _primary, fontWeight: FontWeight.bold),
+                  style: TextStyle(color: tp.primaryColor, fontWeight: FontWeight.bold),
                 ),
           const SizedBox(height: 32),
           ElevatedButton.icon(
             onPressed: _showCreateCardDialog,
-            icon: const Icon(Icons.add, color: _primary),
-            label: const Text("Crear Cartas", style: TextStyle(color: _primary, fontWeight: FontWeight.w700)),
+            icon: Icon(Icons.add, color: tp.primaryColor),
+            label: Text("Crear Cartas", style: TextStyle(color: tp.primaryColor, fontWeight: FontWeight.w700)),
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.white.withOpacity(0.8),
+              backgroundColor: btnBg,
               padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
               elevation: 0,
@@ -421,10 +439,10 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
           const SizedBox(height: 16),
           ElevatedButton.icon(
             onPressed: _startStudySession,
-            icon: const Icon(Icons.play_arrow, color: _primary),
-            label: const Text("Estudiar", style: TextStyle(color: _primary, fontWeight: FontWeight.w700)),
+            icon: Icon(Icons.play_arrow, color: tp.primaryColor),
+            label: Text("Estudiar", style: TextStyle(color: tp.primaryColor, fontWeight: FontWeight.w700)),
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.white.withOpacity(0.8),
+              backgroundColor: btnBg,
               padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
               elevation: 0,
@@ -433,10 +451,10 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
           const SizedBox(height: 16),
           ElevatedButton.icon(
             onPressed: _startRest,
-            icon: const Icon(Icons.coffee, color: _primary),
-            label: const Text("Descansar", style: TextStyle(color: _primary, fontWeight: FontWeight.w700)),
+            icon: Icon(Icons.coffee, color: tp.primaryColor),
+            label: Text("Descansar", style: TextStyle(color: tp.primaryColor, fontWeight: FontWeight.w700)),
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.white.withOpacity(0.8),
+              backgroundColor: btnBg,
               padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
               elevation: 0,
@@ -476,40 +494,40 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final tp = Provider.of<ThemeProvider>(context);
+    final colors = tp.isDarkMode
+        ? [const Color(0xFF212C36), const Color(0xFF313940), tp.backgroundColor]
+        : [const Color(0xFFB6C9D6), const Color(0xFFE6DACA), tp.backgroundColor];
+
     return WillPopScope(
       onWillPop: _confirmarSalida,
       child: Scaffold(
-        backgroundColor: _bg,
+        backgroundColor: tp.backgroundColor,
         appBar: AppBar(
           elevation: 0,
           centerTitle: true,
-          title: const Text(
+          title: Text(
             "Flashcards",
-            style: TextStyle(color: _primary, fontWeight: FontWeight.bold),
+            style: TextStyle(color: tp.primaryColor, fontWeight: FontWeight.bold),
           ),
           actions: [
             IconButton(
-              icon: const Icon(Icons.info_outline, color: _primary),
+              icon: Icon(Icons.info_outline, color: tp.primaryColor),
               onPressed: _showInfoDialog,
             ),
           ],
-          // Gradiente vertical hasta el 75%, igual que Home
+          // Gradiente igual que Home
           flexibleSpace: Container(
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
-                colors: [
-                  Color(0xFFB6C9D6), // mar
-                  Color(0xFFE6DACA), // arena clara
-                  Color(0xFFD9CBBE), // arena suave
-                ],
-                stops: [0.0, 0.75, 1.0],
+                colors: colors,
+                stops: const [0.0, 0.35, 1.0],
               ),
             ),
           ),
         ),
-
         body: _isResting
             ? _restingView()
             : _isStudying

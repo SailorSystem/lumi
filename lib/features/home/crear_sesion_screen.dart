@@ -21,6 +21,9 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
   final _formKey = GlobalKey<FormState>();
   final _titleController = TextEditingController();
 
+  // Lista de métodos (viene desde BD / prefs). Se llena en initState.
+  List<Map<String, dynamic>> _metodosDb = [];
+
   Map<String, dynamic>? _materiaSel; // Renombrado de _temaSel
   String _selectedMetodo = 'Pomodoro';
   DateTime _selectedDate = DateTime.now();
@@ -37,6 +40,27 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
   void initState() {
     super.initState();
     _loadMaterias(); // Renombrado de _loadTemas
+    _loadMetodosDb();
+  }
+  
+  // Carga métodos desde SharedPreferences si existen; si no, guarda los defaults (los tuyos)
+  Future<void> _loadMetodosDb() async {
+    final prefs = await SharedPreferences.getInstance();
+    final List<String>? stored = prefs.getStringList('metodos');
+    if (stored != null && stored.isNotEmpty) {
+      setState(() {
+        _metodosDb = stored.map((s) => json.decode(s) as Map<String, dynamic>).toList();
+      });
+      return;
+    }
+    // defaults proporcionados
+    _metodosDb = [
+      {"idx":0,"id_metodo":1,"nombre":"Pomodoro","descripcion":"Técnica de estudio basada en intervalos de 25 minutos"},
+      {"idx":1,"id_metodo":2,"nombre":"Flashcards","descripcion":"Técnica de estudio basada en tarjetas con preguntas y respuestas para reforzar la memoria."},
+      {"idx":2,"id_metodo":3,"nombre":"Mapa Mental","descripcion":"Representación gráfica de ideas y conceptos organizada de forma radial para facilitar la comprensión y el recuerdo."}
+    ];
+    await prefs.setStringList('metodos', _metodosDb.map((m) => json.encode(m)).toList());
+    setState((){});
   }
 
   @override
@@ -128,10 +152,20 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
       return;
     }
 
-    // Mapear método a id_metodo si tienes IDs. Por ahora asumimos Pomodoro = 1
+    // Mapear método seleccionado a id_metodo usando _metodosDb (si no se encuentra queda null)
     int? metodoId;
-    if (_selectedMetodo.toLowerCase() == 'pomodoro') metodoId = 1;
-    // Si luego tienes una tabla metodos, ajusta para buscar el id real.
+    if (_metodosDb.isNotEmpty) {
+      for (final m in _metodosDb) {
+        final nombre = (m['nombre'] ?? '').toString();
+        if (nombre.toLowerCase() == _selectedMetodo.toLowerCase()) {
+          metodoId = m['id_metodo'] is int ? m['id_metodo'] as int : int.tryParse(m['id_metodo'].toString());
+          break;
+        }
+      }
+    }
+    // si aún no se encontró, intenta asignar por nombre conocido (compatibilidad)
+    metodoId ??= _selectedMetodo.toLowerCase() == 'pomodoro' ? 1 : null;
+    if (metodoId != null) await prefs.setInt('last_selected_metodo_id', metodoId);
 
     // Intentaremos mapear materia a id_tema si es numérico; si no, lo dejamos null
     int? idTema;
@@ -179,7 +213,7 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
       esRapida: false,
       duracionTotal: duracionSegundos,
     );
-
+    
     // Mostrar loading simple
     showDialog(
       context: context,

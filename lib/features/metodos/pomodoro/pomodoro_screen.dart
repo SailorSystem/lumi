@@ -2,6 +2,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:provider/provider.dart';
+import '../../../core/providers/theme_provider.dart';
 
 class PomodoroScreen extends StatefulWidget {
   const PomodoroScreen({Key? key}) : super(key: key);
@@ -11,10 +13,6 @@ class PomodoroScreen extends StatefulWidget {
 }
 
 class _PomodoroScreenState extends State<PomodoroScreen> {
-  static const _bg = Color(0xFFD9CBBE);
-  static const _bar = Color(0xFFB49D87);
-  static const _primary = Color(0xFF2C4459);
-
   final AudioPlayer _player = AudioPlayer();
 
   int studyTime = 25 * 60;
@@ -44,7 +42,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
 
   Future<bool> _isSoundEnabled() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool('sound') ?? true; // true por defecto si no existe
+    return prefs.getBool('sound') ?? true;
   }
 
   void _playSound() async {
@@ -52,7 +50,6 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
       await _player.play(AssetSource('sounds/alert_finish.mp3'));
     }
   }
-
 
   void _handlePhaseCompletion() {
     setState(() {
@@ -96,24 +93,25 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
   }
 
   void _showInfoDialog() {
+    final tp = Provider.of<ThemeProvider>(context, listen: false);
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        backgroundColor: _bg,
+        backgroundColor: tp.backgroundColor,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text("Técnica Pomodoro", style: TextStyle(fontWeight: FontWeight.bold, color: _primary)),
-        content: const Text(
+        title: Text("Técnica Pomodoro", style: TextStyle(fontWeight: FontWeight.bold, color: tp.primaryColor)),
+        content: Text(
           "La técnica Pomodoro divide tu tiempo en bloques:\n\n"
           "• 25 min de enfoque\n"
           "• 5 min de descanso corto\n"
           "• 15 min de descanso largo (cada 4 ciclos)\n\n"
           "Sirve para mantener la concentración sin agotarte.",
-          style: TextStyle(color: _primary, height: 1.4),
+          style: TextStyle(color: tp.primaryColor, height: 1.4),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text("Entendido", style: TextStyle(color: _primary)),
+            child: Text("Entendido", style: TextStyle(color: tp.primaryColor)),
           ),
         ],
       ),
@@ -123,20 +121,18 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
   Future<bool> _confirmarSalida() async {
     final salir = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text("¿Deseas terminar tu sesión?"),
-        content: const Text("Si retrocedes, tu sesión de pomodoro finalizará."),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text("No"),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text("Sí"),
-          ),
-        ],
-      ),
+      builder: (_) {
+        final tp = Provider.of<ThemeProvider>(context, listen: false);
+        return AlertDialog(
+          backgroundColor: tp.backgroundColor,
+          title: Text("¿Deseas terminar tu sesión?", style: TextStyle(color: tp.primaryColor)),
+          content: Text("Si retrocedes, tu sesión de pomodoro finalizará.", style: TextStyle(color: tp.primaryColor)),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: Text("No", style: TextStyle(color: tp.primaryColor))),
+            TextButton(onPressed: () => Navigator.pop(context, true), child: Text("Sí", style: TextStyle(color: tp.primaryColor))),
+          ],
+        );
+      },
     );
     return salir == true;
   }
@@ -150,63 +146,68 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final themeProvider = Provider.of<ThemeProvider>(context);
+    final bg = themeProvider.backgroundColor;
+    final primary = themeProvider.primaryColor;
+    final bar = themeProvider.appBarColor ?? primary;
+    final cardColor = themeProvider.cardColor;
+    // usar mismo gradiente que Home (respeta themeProvider.isDarkMode)
+    final colors = themeProvider.isDarkMode
+        ? [const Color(0xFF212C36), const Color(0xFF313940), themeProvider.backgroundColor]
+        : [const Color(0xFFB6C9D6), const Color(0xFFE6DACA), themeProvider.backgroundColor];
+
     return WillPopScope(
       onWillPop: _confirmarSalida,
       child: Scaffold(
-        backgroundColor: _bg,
+        backgroundColor: bg,
         appBar: AppBar(
           elevation: 0,
           centerTitle: true,
           leading: IconButton(
-            icon: const Icon(Icons.arrow_back, color: _primary),
+            icon: Icon(Icons.arrow_back, color: primary),
             onPressed: () async {
               final salir = await _confirmarSalida();
               if (salir) Navigator.pop(context);
             },
           ),
-          title: const Text(
+          title: Text(
             "Pomodoro",
             style: TextStyle(
-              color: _primary,
+              color: primary,
               fontWeight: FontWeight.w700,
             ),
           ),
           actions: [
             IconButton(
-              icon: const Icon(Icons.info_outline, color: _primary),
+              icon: Icon(Icons.info_outline, color: primary),
               onPressed: _showInfoDialog,
             ),
           ],
-          // GRADIENTE COMO EN HOME:
           flexibleSpace: Container(
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
-                colors: [
-                  Color(0xFFB6C9D6), // mar
-                  Color(0xFFE6DACA), // arena clara
-                  Color(0xFFD9CBBE), // arena suave
-                ],
-                stops: [0.0, 0.75, 1.0],
+                colors: colors,
+                stops: const [0.0, 0.35, 1.0],
               ),
             ),
           ),
         ),
 
         body: GestureDetector(
-          // Captura taps fuera de botones:
           behavior: HitTestBehavior.opaque,
           onTap: () {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text("No puedes editar el tiempo del pomodoro, concéntrate"),
-                duration: Duration(seconds: 2),
+              SnackBar(
+                content: Text("No puedes editar el tiempo del pomodoro, concéntrate", style: TextStyle(color: primary)),
+                duration: const Duration(seconds: 2),
+                backgroundColor: themeProvider.cardColor.withOpacity(0.02),
               ),
             );
           },
           child: AbsorbPointer(
-            absorbing: false, // Permite usar los botones internos normalmente
+            absorbing: false,
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -215,7 +216,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
                 // Temporizador
                 Text(
                   _formatTime(remainingTime),
-                  style: const TextStyle(fontSize: 74, fontWeight: FontWeight.bold, color: _primary),
+                  style: TextStyle(fontSize: 74, fontWeight: FontWeight.bold, color: primary),
                 ),
 
                 const SizedBox(height: 10),
@@ -223,7 +224,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
                 // Fase actual
                 Text(
                   phase,
-                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w600, color: _primary),
+                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600, color: primary),
                 ),
 
                 const SizedBox(height: 40),
@@ -277,11 +278,11 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     if (!isRunning)
-                      _controlButton(Icons.play_arrow, "Iniciar", _primary, startTimer)
+                      _controlButton(Icons.play_arrow, "Iniciar", primary, startTimer)
                     else
                       _controlButton(Icons.pause, "Pausar", Colors.redAccent, pauseTimer),
                     const SizedBox(width: 16),
-                    _controlButton(Icons.refresh, "Reiniciar", _bar, resetTimer),
+                    _controlButton(Icons.refresh, "Reiniciar", bar, resetTimer),
                   ],
                 ),
               ],
@@ -293,16 +294,17 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
   }
 
   Widget _infoText(String title, String value, IconData icon) {
+    final primary = Provider.of<ThemeProvider>(context).primaryColor;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, color: _primary, size: 22),
+        Icon(icon, color: primary, size: 22),
         const SizedBox(width: 6),
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(title, style: const TextStyle(color: _primary, fontWeight: FontWeight.bold)),
-            Text(value, style: const TextStyle(color: _primary, fontSize: 14)),
+            Text(title, style: TextStyle(color: primary, fontWeight: FontWeight.bold)),
+            Text(value, style: TextStyle(color: primary, fontSize: 14)),
           ],
         ),
       ],
@@ -310,23 +312,30 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
   }
 
   Widget _actionButton(String text, VoidCallback onPressed) {
+    final themeProvider = Provider.of<ThemeProvider>(context);
+    final primary = themeProvider.primaryColor;
+    final btnBg = themeProvider.isDarkMode ? themeProvider.cardColor : Colors.white.withOpacity(0.7);
     return ElevatedButton(
       onPressed: onPressed,
       style: ElevatedButton.styleFrom(
-        backgroundColor: Colors.white.withOpacity(0.7),
+        backgroundColor: btnBg,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         elevation: 0,
       ),
-      child: Text(text, style: const TextStyle(color: _primary, fontWeight: FontWeight.w600)),
+      child: Text(text, style: TextStyle(color: primary, fontWeight: FontWeight.w600)),
     );
   }
 
   Widget _controlButton(IconData icon, String label, Color color, VoidCallback onPressed) {
+    // keep color parameter (primary/ bar) for action buttons; for dark mode ensure contrast if necessary
+    final themeProvider = Provider.of<ThemeProvider>(context);
+    Color bg = color;
+    if (themeProvider.isDarkMode && color == Colors.white) bg = themeProvider.primaryColor;
     return ElevatedButton.icon(
       onPressed: onPressed,
       style: ElevatedButton.styleFrom(
-        backgroundColor: color,
+        backgroundColor: bg,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       ),

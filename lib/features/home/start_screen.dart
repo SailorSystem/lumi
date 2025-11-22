@@ -2,10 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest.dart' as tz;
+import 'package:provider/provider.dart';
 
 import '../../core/models/sesion.dart';
 import '../../core/services/supabase_service.dart';
+import '../../core/providers/theme_provider.dart';
 import '../metodos/pomodoro/pomodoro_screen.dart';
+import '../metodos/flashcards/flashcards_screen.dart';
+import '../metodos/mentalmaps/mentalmaps.screen.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'dart:async';
 
 class StartScreen extends StatefulWidget {
   final int? idSesion; // ← AHORA RECIBE SOLO EL ID
@@ -17,15 +23,12 @@ class StartScreen extends StatefulWidget {
 }
 
 class _StartScreenState extends State<StartScreen> {
-  static const _bg = Color(0xFFD9CBBE);
-  static const _bar = Color(0xFFB49D87);
-  static const _primary = Color(0xFF2C4459);
-
   final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
       FlutterLocalNotificationsPlugin();
 
   Sesion? sesion;
   bool loading = true;
+  String? metodoNombre; // nombre del método para mostrar
 
   @override
   void initState() {
@@ -49,6 +52,20 @@ class _StartScreenState extends State<StartScreen> {
 
     if (data != null) {
       sesion = Sesion.fromMap(data);
+
+      // obtener nombre del método si existe id_metodo
+      if (sesion?.idMetodo != null) {
+        final int metodoId = sesion!.idMetodo!; // asegurar no nulo
+        final metodoRow = await SupabaseService.client
+            .from('metodos')
+            .select()
+            .eq('id_metodo', metodoId)
+            .maybeSingle();
+        if (metodoRow != null) {
+          metodoNombre = (metodoRow['nombre'] ?? '').toString();
+        }
+      }
+
       await _initializeNotifications();
       await _scheduleNotifications();
     }
@@ -111,41 +128,80 @@ class _StartScreenState extends State<StartScreen> {
   }
 
   void _startSession() {
-    if (sesion?.idMetodo == 1) {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (_) => const PomodoroScreen(),
-        ),
-      );
+    if (sesion == null || sesion!.idMetodo == null) return;
+
+    switch (sesion!.idMetodo) {
+      case 1: // Pomodoro
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const PomodoroScreen()),
+        );
+        break;
+      case 2: // Flashcards
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const FlashcardsScreen()),
+        );
+        break;
+      case 3: // Mapa Mental
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const MentalMapsScreen()),
+        );
+        break;
+      default:
+        // método desconocido: mostrar aviso
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Método no soportado')),
+        );
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final tp = Provider.of<ThemeProvider>(context);
+    final bgcolor = tp.backgroundColor;
+    final primary = tp.primaryColor;
+    final colors = tp.isDarkMode
+        ? [const Color(0xFF212C36), const Color(0xFF313940), tp.backgroundColor]
+        : [const Color(0xFFB6C9D6), const Color(0xFFE6DACA), tp.backgroundColor];
+
     if (loading) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
+      return Scaffold(
+        backgroundColor: bgcolor,
+        body: const Center(child: CircularProgressIndicator()),
       );
     }
 
     if (sesion == null) {
-      return const Scaffold(
-        body: Center(child: Text('Sesión no encontrada')),
+      return Scaffold(
+        backgroundColor: bgcolor,
+        body: Center(child: Text('Sesión no encontrada', style: TextStyle(color: primary))),
       );
     }
 
     final hora = "${sesion!.fecha.hour.toString().padLeft(2, '0')}:${sesion!.fecha.minute.toString().padLeft(2, '0')}";
 
+    final showName = (metodoNombre ?? (sesion!.idMetodo != null ? 'Método ${sesion!.idMetodo}' : 'Sin método'));
+
     return Scaffold(
-      backgroundColor: _bg,
+      backgroundColor: bgcolor,
       appBar: AppBar(
-        backgroundColor: _bar,
-        title: Text(sesion!.nombreSesion),
-        centerTitle: true,
         elevation: 0,
+        centerTitle: true,
+        title: Text(sesion!.nombreSesion, style: TextStyle(color: primary)),
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: colors,
+              stops: const [0.0, 0.35, 1.0],
+            ),
+          ),
+        ),
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black),
+          icon: Icon(Icons.arrow_back, color: primary),
           onPressed: () => Navigator.pop(context),
         ),
       ),
@@ -162,14 +218,14 @@ class _StartScreenState extends State<StartScreen> {
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.w700,
-                    color: _primary,
+                    color: primary,
                   ),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 18),
                 Text(
-                  'Método: ${sesion!.idMetodo ?? "Sin método"}',
-                  style: TextStyle(fontSize: 14, color: _primary.withOpacity(0.9)),
+                  'Método: $showName',
+                  style: TextStyle(fontSize: 14, color: primary.withOpacity(0.9)),
                 ),
                 const SizedBox(height: 20),
                 Row(
@@ -179,11 +235,11 @@ class _StartScreenState extends State<StartScreen> {
                       width: 140,
                       height: 48,
                       child: ElevatedButton.icon(
-                        onPressed: _startSession,
-                        icon: const Icon(Icons.play_arrow, size: 20),
-                        label: const Text('Sí'),
+                        onPressed: (sesion!.idMetodo != null) ? _startSession : null,
+                        icon: Icon(Icons.play_arrow, size: 20, color: Colors.white),
+                        label: Text('Sí', style: const TextStyle(color: Colors.white)),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: _primary,
+                          backgroundColor: primary,
                           foregroundColor: Colors.white,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(28),
@@ -198,12 +254,12 @@ class _StartScreenState extends State<StartScreen> {
                       height: 48,
                       child: OutlinedButton.icon(
                         onPressed: () => Navigator.pop(context),
-                        icon: const Icon(Icons.close, size: 20),
-                        label: const Text('No'),
+                        icon: Icon(Icons.close, size: 20, color: primary),
+                        label: Text('No', style: TextStyle(color: primary)),
                         style: OutlinedButton.styleFrom(
-                          backgroundColor: Colors.white,
-                          foregroundColor: Colors.black,
-                          side: BorderSide(color: Colors.grey.shade300),
+                          backgroundColor: tp.isDarkMode ? tp.cardColor : Colors.white,
+                          foregroundColor: primary,
+                          side: BorderSide(color: primary.withOpacity(0.18)),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(28),
                           ),
@@ -216,7 +272,7 @@ class _StartScreenState extends State<StartScreen> {
                 const SizedBox(height: 12),
                 Text(
                   'Hora: $hora',
-                  style: const TextStyle(fontSize: 13, color: Colors.black54),
+                  style: TextStyle(fontSize: 13, color: primary.withOpacity(0.9)),
                 ),
               ],
             ),
