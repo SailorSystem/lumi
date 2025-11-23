@@ -26,6 +26,7 @@ dependencies:
   mind_map: ^1.0.5
   pdf: ^3.11.3
   printing: ^5.14.2
+  permission_handler: ^11.0.1
 
 
 dev_dependencies:

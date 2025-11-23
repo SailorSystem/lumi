@@ -3,7 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/providers/theme_provider.dart';
 import '../../../core/services/sesion_service.dart'; 
+import '../../../core/services/mood_service.dart';
 import '../../../core/models/sesion.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'dart:async';
 
 class FlashcardsScreen extends StatefulWidget {
   final int? idSesion; // ✅ AGREGAR
@@ -28,11 +32,121 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
   bool _isStudying = false;
   bool _isResting = false;
   int _cardsStudied = 0;
-  
+  int? duracionEstipulada;
+  int tiempoTranscurrido = 0;
+  bool tiempoEstipuladoCumplido = false;
+  Timer? tiempoTimer;
+  bool isStudying = false; // ✅ DEBE EXISTIR
+  bool isResting = false;  // ✅ DEBE EXISTIR
   // Para el descanso
   int _restSeconds = 0;
   Timer? _restTimer;
 
+  @override
+  void initState() {
+    super.initState();
+    _cargarDuracionEstipulada();
+    _iniciarContadorTiempo();
+  }
+  Future<void> _cargarDuracionEstipulada() async {
+    if (widget.idSesion == null) return;
+    
+    try {
+      final response = await Supabase.instance.client
+          .from('sesiones')
+          .select('duracion_total')
+          .eq('id_sesion', widget.idSesion!)
+          .single();
+      
+      duracionEstipulada = response['duracion_total'] as int?;
+      
+      if (duracionEstipulada != null) {
+        print('⏱️ Duración estipulada: ${duracionEstipulada! ~/ 60} minutos');
+      }
+    } catch (e) {
+      print('❌ Error cargando duración: $e');
+    }
+  }   
+
+  void _iniciarContadorTiempo() {
+    tiempoTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      // ✅ Siempre incrementar (no hay pausas en mapa mental)
+      setState(() {
+        tiempoTranscurrido++;
+      });
+      
+      // Verificar si se cumplió el tiempo
+      if (!tiempoEstipuladoCumplido && 
+          duracionEstipulada != null && 
+          tiempoTranscurrido >= duracionEstipulada!) {
+        tiempoEstipuladoCumplido = true;
+        _mostrarDialogoTiempoCumplido();
+      }
+    });
+  }
+
+
+
+
+  Future<void> _mostrarDialogoTiempoCumplido() async {
+    final tp = Provider.of<ThemeProvider>(context, listen: false);
+    
+    final continuar = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        backgroundColor: tp.cardColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Icon(Icons.check_circle, color: Colors.green, size: 28),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                '¡Tiempo cumplido!',
+                style: TextStyle(
+                  color: tp.primaryColor,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          'Has completado los ${duracionEstipulada! ~/ 60} minutos estipulados para esta sesión de Flashcards.\n\n¿Deseas continuar estudiando o finalizar?',
+          style: TextStyle(color: tp.primaryColor, height: 1.5),
+        ),
+        actions: [
+          OutlinedButton.icon(
+            onPressed: () => Navigator.pop(context, false),
+            icon: const Icon(Icons.stop, size: 18),
+            label: const Text('Finalizar'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.red,
+              side: const BorderSide(color: Colors.red),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+          ),
+          ElevatedButton.icon(
+            onPressed: () => Navigator.pop(context, true),
+            icon: const Icon(Icons.play_arrow, size: 18),
+            label: const Text('Continuar'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+          ),
+        ],
+      ),
+    );
+    
+    if (continuar != true) {
+      // Finalizar sesión
+      await _finalizarSesion();
+      if (mounted) Navigator.of(context).pop(true);
+    }
+  }
   void _showInfoDialog() {
     final tp = Provider.of<ThemeProvider>(context, listen: false);
     showDialog(
@@ -62,6 +176,12 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
     if (widget.idSesion == null) {
       print('⚠️ No hay idSesion para actualizar');
       return;
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    final userId = prefs.getInt('user_id');
+    if (userId != null) {
+      await MoodService.calcularYActualizarEstadoAnimo(userId);
     }
     
     try {
@@ -699,6 +819,7 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
   @override
   void dispose() {
     _restTimer?.cancel();
+    tiempoTimer?.cancel(); // ✅ AGREGAR
       if (widget.idSesion != null && _cardsStudied > 0) {
     SesionService.actualizarEstadoSesion(
       widget.idSesion!,

@@ -22,6 +22,7 @@ import '../../core/services/sesion_service.dart';
 import '../../core/services/usuario_service.dart';
 import '../../core/services/stat_service.dart';
 import '../../core/providers/theme_provider.dart';
+import '../../core/services/mood_service.dart';
 import 'firstre_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -47,6 +48,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   int? _userId;
   String _userName = 'Usuario';
+  int _estadoAnimo = 2; // Estado de ánimo por defecto (neutral)
 
   final _quotes = <String>[
     'Un bloque a la vez.',
@@ -68,6 +70,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     _pulse = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 2),
+      lowerBound: 0.8, // ✅ Rango más pequeño
+      upperBound: 1.0,
     )..repeat(reverse: true);
 
     _loadUserData();
@@ -138,8 +142,13 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused || state == AppLifecycleState.detached) {
       _enviarTiempoUsoFinal();
+    } else if (state == AppLifecycleState.resumed) {
+      // ✅ AGREGAR: Recargar datos al volver
+      print('📱 App resumida, recargando datos...');
+      _loadCompletedSessions();
     }
   }
+
 
   Future<void> _loadUserData() async {
     final prefs = await SharedPreferences.getInstance();
@@ -159,8 +168,13 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       _userName = prefs.getString('user_name') ?? 'Usuario';
     }
 
+    // ✅ AGREGAR: Calcular y obtener estado de ánimo
+    _estadoAnimo = await MoodService.calcularYActualizarEstadoAnimo(_userId!);
+    print('😊 Estado de ánimo de Lumi: $_estadoAnimo');
+
     if (mounted) setState(() {});
   }
+
 
   /// Marca las sesiones pasadas como incompletas
   Future<void> _marcarSesionesIncompletas() async {
@@ -565,7 +579,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   // ------------------------- HEADER -------------------------
   Widget _headerHero() {
     final themeProvider = Provider.of<ThemeProvider>(context);
-    final theme = Theme.of(context);
+    final isDark = themeProvider.isDarkMode;
+    
     return ClipRRect(
       borderRadius: const BorderRadius.only(
         bottomLeft: Radius.circular(50),
@@ -578,7 +593,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: themeProvider.isDarkMode
+            colors: isDark
                 ? [
                     const Color(0xFF212C36),
                     const Color(0xFF313940),
@@ -589,7 +604,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     const Color(0xFFE6DACA),
                     themeProvider.backgroundColor,
                   ],
-            stops: [0.0, 0.35, 1.0],
+            stops: const [0.0, 0.35, 1.0],
           ),
         ),
 
@@ -599,8 +614,18 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: Color(0xFFC6905B).withOpacity(0.28),
+                // ✅ Color adaptativo según el modo
+                color: isDark
+                    ? Colors.white.withOpacity(0.08) // Más sutil en modo oscuro
+                    : const Color(0xFFC6905B).withOpacity(0.20), // Más suave en modo claro
                 borderRadius: BorderRadius.circular(22),
+                // ✅ Agregar borde sutil
+                border: Border.all(
+                  color: isDark
+                      ? Colors.white.withOpacity(0.1)
+                      : Colors.black.withOpacity(0.05),
+                  width: 1,
+                ),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -610,6 +635,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     children: [
                       LumiChar(
                         size: 74,
+                        estadoAnimo: _estadoAnimo,
                         onMessage: (msg) {
                           setState(() {
                             _quote = msg;
@@ -629,12 +655,15 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
                   const SizedBox(height: 10),
 
-                  const Text(
+                  // ✅ Texto con color adaptativo
+                  Text(
                     "Me llamo Lumi ✨",
                     style: TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
-                      color: Colors.white,
+                      color: isDark
+                          ? Colors.white.withOpacity(0.95)
+                          : Colors.white,
                     ),
                   ),
                 ],
@@ -649,6 +678,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   // --------------------- BURBUJA DE FRASE ------------------------
   Widget _motivationalBubble() {
     if (!_showQuote) return const SizedBox.shrink();
+    
+    final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
+    final isDark = themeProvider.isDarkMode;
 
     return AnimatedOpacity(
       duration: const Duration(milliseconds: 250),
@@ -657,13 +689,17 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         constraints: const BoxConstraints(maxWidth: 210),
         decoration: BoxDecoration(
-          color: const Color(0xFFC6905B).withOpacity(0.15),
+          // ✅ Color adaptativo para la burbuja
+          color: isDark
+              ? Colors.white.withOpacity(0.15)
+              : const Color(0xFFC6905B).withOpacity(0.25),
           borderRadius: BorderRadius.circular(16),
-          boxShadow: const [
+          // ✅ Sombra más sutil
+          boxShadow: [
             BoxShadow(
-              color: Colors.black26,
-              blurRadius: 6,
-              offset: Offset(0, 2),
+              color: Colors.black.withOpacity(isDark ? 0.3 : 0.15),
+              blurRadius: 8,
+              offset: const Offset(0, 3),
             )
           ],
         ),
@@ -673,16 +709,27 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             Expanded(
               child: Text(
                 _quote,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.w600,
+                  // ✅ Color de texto adaptativo
+                  color: isDark
+                      ? Colors.white.withOpacity(0.95)
+                      : Colors.white,
                 ),
               ),
             ),
             const SizedBox(width: 6),
             GestureDetector(
               onTap: () => setState(() => _showQuote = false),
-              child: const Icon(Icons.close, size: 18, color: Colors.teal),
+              child: Icon(
+                Icons.close,
+                size: 18,
+                // ✅ Color del icono adaptativo
+                color: isDark
+                    ? themeProvider.primaryColor
+                    : Colors.teal.shade700,
+              ),
             ),
           ],
         ),

@@ -9,6 +9,7 @@ import '../../core/services/usuario_service.dart';
 import '../../core/models/sesion.dart';
 import '../../core/models/usuario.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../core/services/connectivity_service.dart';
 
 class StatsScreen extends StatefulWidget {
   const StatsScreen({Key? key}) : super(key: key);
@@ -24,7 +25,10 @@ class StatsScreenState extends State<StatsScreen> {
   // Sesiones
   List<Sesion> todasSesiones = [];
   List<Sesion> sesionesFiltradas = [];
-  
+
+  List<Map<String, dynamic>> todosTemas = [];
+  List<int> temasSeleccionados = []; // IDs de temas seleccionados
+
   // ✅ Estadísticas actualizadas
   int totalFinalizadas = 0;
   int totalIncompletas = 0;
@@ -97,16 +101,50 @@ class StatsScreenState extends State<StatsScreen> {
       totalFinalizadas = 0;
       totalIncompletas = 0;
       totalRapidas = 0;
+      todosTemas = [];
 
-      // Cargar todas las sesiones desde Supabase
+      // ✅ CARGAR TEMAS CON RETRY
       try {
-        print('🌐 Cargando todas las sesiones desde Supabase con userId=$userId...');
+        print('🎨 Cargando temas del usuario...');
         
-        final response = await Supabase.instance.client
-            .from('sesiones')
-            .select()
-            .eq('id_usuario', userId!)
-            .order('fecha', ascending: false);
+        final temasResponse = await ConnectivityService.ejecutarConReintento(
+          operacion: () => Supabase.instance.client
+              .from('temas')
+              .select()
+              .eq('id_usuario', userId!),
+          intentosMaximos: 3,
+        );
+        
+        final idsVistos = <int>{};
+        final temasUnicos = <Map<String, dynamic>>[];
+        
+        for (var tema in temasResponse) {
+          final idTema = tema['id_tema'] as int;
+          if (!idsVistos.contains(idTema)) {
+            idsVistos.add(idTema);
+            temasUnicos.add(Map<String, dynamic>.from(tema));
+          }
+        }
+        
+        todosTemas = temasUnicos;
+        print('✅ Temas únicos cargados: ${todosTemas.length}');
+      } catch (e) {
+        print('❌ Error cargando temas: $e');
+        todosTemas = [];
+      }
+
+      // ✅ CARGAR SESIONES CON RETRY
+      try {
+        print('🌐 Cargando sesiones desde Supabase con userId=$userId...');
+        
+        final response = await ConnectivityService.ejecutarConReintento(
+          operacion: () => Supabase.instance.client
+              .from('sesiones')
+              .select()
+              .eq('id_usuario', userId!)
+              .order('fecha', ascending: false),
+          intentosMaximos: 3,
+        );
         
         print('📦 Respuesta de Supabase: ${response.length} sesiones encontradas');
 
@@ -125,7 +163,6 @@ class StatsScreenState extends State<StatsScreen> {
             );
             
             todasSesiones.add(sesion);
-            print('✅ Sesión cargada: ${sesion.nombreSesion} - Estado: ${sesion.estado} - Rápida: ${sesion.esRapida}');
           } catch (e) {
             print('❌ Error parseando sesión: $e');
           }
@@ -134,10 +171,26 @@ class StatsScreenState extends State<StatsScreen> {
         print('📊 Total de sesiones cargadas: ${todasSesiones.length}');
       } catch (e) {
         print('❌ Error Supabase: $e');
+        
+        // ✅ Mostrar error al usuario
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('Error de conexión. Verifica tu red.'),
+              backgroundColor: Colors.orange,
+              action: SnackBarAction(
+                label: 'REINTENTAR',
+                textColor: Colors.white,
+                onPressed: loadStats,
+              ),
+            ),
+          );
+        }
+        
         todasSesiones = [];
       }
 
-      // ✅ Calcular estadísticas
+      // Calcular estadísticas
       totalSesiones = todasSesiones.length;
       totalFinalizadas = todasSesiones.where((s) => s.estado == 'finalizada').length;
       totalIncompletas = todasSesiones.where((s) => s.estado == 'incompleta').length;
@@ -162,25 +215,36 @@ class StatsScreenState extends State<StatsScreen> {
 
   void aplicarFiltros() {
     print('🔍 Aplicando filtros: $tipoSeleccionado, $ordenSeleccionado');
+    print('🎨 Temas seleccionados: $temasSeleccionados');
     
-    // ✅ Filtrar por tipo
+    // ✅ PASO 1: Filtrar por temas si hay alguno seleccionado
+    List<Sesion> temp;
+    if (temasSeleccionados.isEmpty) {
+      temp = List.from(todasSesiones);
+    } else {
+      temp = todasSesiones
+          .where((s) => s.idTema != null && temasSeleccionados.contains(s.idTema))
+          .toList();
+    }
+    
+    // ✅ PASO 2: Filtrar por tipo
     if (tipoSeleccionado == 'Todas') {
-      sesionesFiltradas = List.from(todasSesiones);
+      sesionesFiltradas = temp;
     } else if (tipoSeleccionado == 'Finalizadas') {
-      sesionesFiltradas = todasSesiones
+      sesionesFiltradas = temp
           .where((s) => s.estado == 'finalizada')
           .toList();
     } else if (tipoSeleccionado == 'Incompletas') {
-      sesionesFiltradas = todasSesiones
+      sesionesFiltradas = temp
           .where((s) => s.estado == 'incompleta')
           .toList();
     } else if (tipoSeleccionado == 'Rápidas') {
-      sesionesFiltradas = todasSesiones
+      sesionesFiltradas = temp
           .where((s) => s.esRapida)
           .toList();
     }
     
-    // Ordenar
+    // ✅ PASO 3: Ordenar
     if (ordenSeleccionado == 'Más reciente') {
       sesionesFiltradas.sort((a, b) => b.fecha.compareTo(a.fecha));
     } else if (ordenSeleccionado == 'Más antiguo') {
@@ -193,6 +257,198 @@ class StatsScreenState extends State<StatsScreen> {
     sesionesVisibles = sesionesPorPagina;
   }
 
+  Future<void> _mostrarModalTemas(Color cardColor, Color textColor, Color primary) async {
+    await showModalBottomSheet(
+      context: context,
+      backgroundColor: cardColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Filtrar por tema',
+                          style: TextStyle(
+                            color: primary,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        if (temasSeleccionados.isNotEmpty)
+                          TextButton(
+                            onPressed: () {
+                              setModalState(() {
+                                temasSeleccionados.clear();
+                              });
+                            },
+                            child: Text(
+                              'Limpiar',
+                              style: TextStyle(color: primary),
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    
+                    if (todosTemas.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Center(
+                          child: Text(
+                            'No hay temas creados',
+                            style: TextStyle(
+                              color: textColor.withOpacity(0.6),
+                              fontSize: 16,
+                            ),
+                          ),
+                        ),
+                      )
+                    else
+                      Expanded(
+                        child: ListView.builder(
+                          shrinkWrap: true,
+                          itemCount: todosTemas.length,
+                          itemBuilder: (context, index) {
+                            final tema = todosTemas[index];
+                            final idTema = tema['id_tema'] as int;
+                            final nombre = tema['titulo'] as String;
+                            final colorHex = tema['color_hex'] as String?;
+                            
+                            // ✅ AGREGAR: Log para ver qué se está renderizando
+                            print('🎨 Renderizando tema $index: id=$idTema, nombre=$nombre');
+                            
+                            // Parsear color desde hex
+                            Color temaColor = primary;
+                            if (colorHex != null && colorHex.isNotEmpty) {
+                              try {
+                                String hexColor = colorHex;
+                                if (hexColor.startsWith('#')) {
+                                  hexColor = hexColor.replaceFirst('#', '0xFF');
+                                } else if (!hexColor.startsWith('0x')) {
+                                  hexColor = '0xFF$hexColor';
+                                }
+                                temaColor = Color(int.parse(hexColor));
+                              } catch (e) {
+                                print('❌ Error parseando color: $e');
+                              }
+                            }
+                                                                              
+                            final isSelected = temasSeleccionados.contains(idTema);
+                            
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: InkWell(
+                                onTap: () {
+                                  setModalState(() {
+                                    if (isSelected) {
+                                      temasSeleccionados.remove(idTema);
+                                    } else {
+                                      temasSeleccionados.add(idTema);
+                                    }
+                                  });
+                                },
+                                borderRadius: BorderRadius.circular(12),
+                                child: Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: isSelected
+                                        ? temaColor.withOpacity(0.2)
+                                        : primary.withOpacity(0.05),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: isSelected ? temaColor : primary.withOpacity(0.2),
+                                      width: isSelected ? 2 : 1,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        width: 16,
+                                        height: 16,
+                                        decoration: BoxDecoration(
+                                          color: temaColor,
+                                          shape: BoxShape.circle,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Text(
+                                          nombre,
+                                          style: TextStyle(
+                                            color: textColor,
+                                            fontWeight: isSelected
+                                                ? FontWeight.w600
+                                                : FontWeight.w500,
+                                            fontSize: 15,
+                                          ),
+                                        ),
+                                      ),
+                                      if (isSelected)
+                                        Icon(
+                                          Icons.check_circle,
+                                          color: temaColor,
+                                          size: 20,
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    
+                    const SizedBox(height: 16),
+                    
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: () {
+                          setState(() {
+                            aplicarFiltros();
+                          });
+                          Navigator.pop(context);
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: primary,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: Text(
+                          temasSeleccionados.isEmpty
+                              ? 'Mostrar todas las sesiones'
+                              : 'Aplicar filtro (${temasSeleccionados.length} ${temasSeleccionados.length == 1 ? 'tema' : 'temas'})',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 15,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   void cargarMasSesiones() {
     setState(() {
       sesionesVisibles += sesionesPorPagina;
@@ -201,32 +457,32 @@ class StatsScreenState extends State<StatsScreen> {
   }
 
   List<FlSpot> obtenerDatosGrafico() {
-    if (todasSesiones.isEmpty) return [];
+    // ✅ Usar sesionesFiltradas en vez de todasSesiones
+    if (sesionesFiltradas.isEmpty) return [];
     
     final ahora = DateTime.now();
     DateTime fechaInicio;
     
-    // ✅ Determinar rango según el filtro
+    // Determinar rango según el filtro
     if (filtroGrafico == 'Semana') {
       fechaInicio = ahora.subtract(const Duration(days: 7));
     } else if (filtroGrafico == 'Mes') {
       fechaInicio = ahora.subtract(const Duration(days: 30));
     } else {
-      // General: todos los datos
-      fechaInicio = DateTime(2000); // Fecha muy antigua para incluir todo
+      fechaInicio = DateTime(2000);
     }
     
-    // Filtrar sesiones por rango de fecha
-    final sesionesFiltradas = todasSesiones
+    // ✅ Filtrar sesiones YA FILTRADAS por temas
+    final sesionesPorFecha = sesionesFiltradas
         .where((s) => s.fecha.isAfter(fechaInicio))
         .toList();
     
-    if (sesionesFiltradas.isEmpty) return [];
+    if (sesionesPorFecha.isEmpty) return [];
     
     // Agrupar sesiones por fecha
     Map<String, int> sesionesPorDia = {};
     
-    for (var sesion in sesionesFiltradas) {
+    for (var sesion in sesionesPorFecha) {
       String key = '${sesion.fecha.year}-${sesion.fecha.month.toString().padLeft(2, '0')}-${sesion.fecha.day.toString().padLeft(2, '0')}';
       sesionesPorDia[key] = (sesionesPorDia[key] ?? 0) + 1;
     }
@@ -245,7 +501,6 @@ class StatsScreenState extends State<StatsScreen> {
           ? sortedKeys.sublist(sortedKeys.length - 30) 
           : sortedKeys;
     } else {
-      // General: limitar a últimos 60 días para no saturar
       keysAMostrar = sortedKeys.length > 60 
           ? sortedKeys.sublist(sortedKeys.length - 60) 
           : sortedKeys;
@@ -256,9 +511,10 @@ class StatsScreenState extends State<StatsScreen> {
       spots.add(FlSpot(i.toDouble(), sesionesPorDia[keysAMostrar[i]]!.toDouble()));
     }
     
-    print('📈 Gráfico con ${spots.length} puntos (filtro: $filtroGrafico)');
+    print('📈 Gráfico con ${spots.length} puntos (filtro: $filtroGrafico, temas: ${temasSeleccionados.length})');
     return spots;
   }
+
 
 
   @override
@@ -347,7 +603,6 @@ class StatsScreenState extends State<StatsScreen> {
     );
   }
 
-  // ✅ Resumen actualizado con 4 estadísticas
   Widget _buildResumenCard(Color cardColor, Color textColor, Color primary) {
     return Card(
       color: cardColor,
@@ -358,14 +613,60 @@ class StatsScreenState extends State<StatsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Resumen',
-              style: TextStyle(
-                color: primary,
-                fontSize: 20,
-                fontWeight: FontWeight.w700,
-              ),
+            // ✅ AGREGAR: Row con título y botón de filtro
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Resumen',
+                  style: TextStyle(
+                    color: primary,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                // ✅ BOTÓN PARA FILTRAR POR TEMAS
+                IconButton(
+                  icon: Icon(
+                    Icons.filter_list,
+                    color: temasSeleccionados.isEmpty ? primary : Colors.green,
+                  ),
+                  tooltip: 'Filtrar por tema',
+                  onPressed: () => _mostrarModalTemas(cardColor, textColor, primary),
+                ),
+              ],
             ),
+            
+            // ✅ AGREGAR: Mostrar temas seleccionados como chips
+            if (temasSeleccionados.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 8, bottom: 8),
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: temasSeleccionados.map((idTema) {
+                    final tema = todosTemas.firstWhere(
+                      (t) => t['id_tema'] == idTema,
+                      orElse: () => {'titulo': 'Tema $idTema'},
+                    );
+                    return Chip(
+                      label: Text(
+                        tema['titulo'] as String,
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                      backgroundColor: primary.withOpacity(0.2),
+                      deleteIcon: const Icon(Icons.close, size: 16),
+                      onDeleted: () {
+                        setState(() {
+                          temasSeleccionados.remove(idTema);
+                          aplicarFiltros();
+                        });
+                      },
+                    );
+                  }).toList(),
+                ),
+              ),
+            
             const SizedBox(height: 16),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -381,6 +682,7 @@ class StatsScreenState extends State<StatsScreen> {
       ),
     );
   }
+
   
   Widget _filtroBoton(String filtro, Color primary, Color cardColor, Color textColor) {
     final esSeleccionado = filtroGrafico == filtro;
@@ -433,8 +735,13 @@ class StatsScreenState extends State<StatsScreen> {
         .where((s) => s.fecha.isAfter(fechaInicio))
         .toList();
     
+    // ✅ Cambiar todasSesiones por sesionesFiltradas
+    final sesionesPorFecha = sesionesFiltradas
+        .where((s) => s.fecha.isAfter(fechaInicio))
+        .toList();
+    
     Map<String, int> sesionesPorDia = {};
-    for (var sesion in sesionesFiltradas) {
+    for (var sesion in sesionesPorFecha) {
       String key = '${sesion.fecha.year}-${sesion.fecha.month.toString().padLeft(2, '0')}-${sesion.fecha.day.toString().padLeft(2, '0')}';
       sesionesPorDia[key] = (sesionesPorDia[key] ?? 0) + 1;
     }
@@ -449,7 +756,6 @@ class StatsScreenState extends State<StatsScreen> {
     } else {
       keysAMostrar = sortedKeys.length > 60 ? sortedKeys.sublist(sortedKeys.length - 60) : sortedKeys;
     }
-    
     // ✅ Calcular el valor máximo para ajustar el intervalo del eje Y
     double maxY = 0;
     if (spots.isNotEmpty) {

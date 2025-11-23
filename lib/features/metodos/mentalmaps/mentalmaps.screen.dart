@@ -1,5 +1,6 @@
 import 'dart:ui' as ui;
 import 'dart:typed_data'; // <-- agrega Uint8List
+import 'dart:async'; // <-- agrega Timer
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart'; // <-- agrega RenderRepaintBoundary
 import 'package:mind_map/mind_map.dart';
@@ -9,6 +10,9 @@ import 'package:pdf/pdf.dart'; // <-- <<-- agrega esto para PdfPageFormat
 import 'package:printing/printing.dart';
 import '../../../core/providers/theme_provider.dart';
 import '../../../core/services/sesion_service.dart';
+import '../../../core/services/mood_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class MindNode {
   String text;
@@ -30,6 +34,113 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
   int _nodesCreated = 0;
   // Key para capturar el widget (RepaintBoundary)
   final GlobalKey _mapRepaintKey = GlobalKey();
+
+  int? duracionEstipulada;
+  int tiempoTranscurrido = 0;
+  bool tiempoEstipuladoCumplido = false;
+  Timer? tiempoTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _createRootNode();
+    _cargarDuracionEstipulada();
+    _iniciarContadorTiempo();
+  }
+
+  Future<void> _cargarDuracionEstipulada() async {
+    if (widget.idSesion == null) return;
+    
+    try {
+      final response = await Supabase.instance.client
+          .from('sesiones')
+          .select('duracion_total')
+          .eq('id_sesion', widget.idSesion!)
+          .single();
+      
+      duracionEstipulada = response['duracion_total'] as int?;
+      
+      if (duracionEstipulada != null) {
+        print('⏱️ Duración estipulada: ${duracionEstipulada! ~/ 60} minutos');
+      }
+    } catch (e) {
+      print('❌ Error cargando duración: $e');
+    }
+  }
+
+  void _iniciarContadorTiempo() {
+    tiempoTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      tiempoTranscurrido++;
+      
+      // Verificar si se cumplió el tiempo
+      if (!tiempoEstipuladoCumplido && 
+          duracionEstipulada != null && 
+          tiempoTranscurrido >= duracionEstipulada!) {
+        tiempoEstipuladoCumplido = true;
+        _mostrarDialogoTiempoCumplido();
+      }
+    });
+  }
+
+  Future<void> _mostrarDialogoTiempoCumplido() async {
+    final tp = Provider.of<ThemeProvider>(context, listen: false);
+    
+    final continuar = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        backgroundColor: tp.cardColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Icon(Icons.check_circle, color: Colors.green, size: 28),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                '¡Tiempo cumplido!',
+                style: TextStyle(
+                  color: tp.primaryColor,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          'Has completado los ${duracionEstipulada! ~/ 60} minutos estipulados para tu Mapa Mental.\n\n¿Deseas continuar o finalizar?',
+          style: TextStyle(color: tp.primaryColor, height: 1.5),
+        ),
+        actions: [
+          OutlinedButton.icon(
+            onPressed: () => Navigator.pop(context, false),
+            icon: const Icon(Icons.stop, size: 18),
+            label: const Text('Finalizar'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.red,
+              side: const BorderSide(color: Colors.red),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+          ),
+          ElevatedButton.icon(
+            onPressed: () => Navigator.pop(context, true),
+            icon: const Icon(Icons.play_arrow, size: 18),
+            label: const Text('Continuar'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+          ),
+        ],
+      ),
+    );
+    
+    if (continuar != true) {
+      // Finalizar sesión
+      await _finalizarSesion();
+      if (mounted) Navigator.of(context).pop(true);
+    }
+  }
 
   // Gradientes para diferenciar niveles (light)
   final List<List<Color>> _levelGradientsLight = [
@@ -88,7 +199,7 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
         print('Error finalizando sesión en dispose: $e');
       });
     }
-    
+    tiempoTimer?.cancel(); // ✅ AGREGAR
     super.dispose();
   }
 
@@ -96,6 +207,11 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
     if (widget.idSesion == null) {
       print('⚠️ No hay idSesion para actualizar');
       return;
+    }
+    final prefs = await SharedPreferences.getInstance();
+    final userId = prefs.getInt('user_id');
+    if (userId != null) {
+      await MoodService.calcularYActualizarEstadoAnimo(userId);
     }
     
     try {

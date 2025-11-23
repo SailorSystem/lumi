@@ -1,11 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/services/usuario_service.dart';
-
 import 'package:provider/provider.dart';
 import '../../core/providers/theme_provider.dart';
-import '../../core/services/configuracion_service.dart';
-import '../../core/models/configuracion.dart';
 
 class SettingsScreen extends StatefulWidget {
   final int idUsuario;
@@ -16,19 +13,9 @@ class SettingsScreen extends StatefulWidget {
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-
 class _SettingsScreenState extends State<SettingsScreen> {
-  // Paleta
-  //static const _bg = Color(0xFFD9CBBE);
-  //static const _bar = Color(0xFFB49D87);
-  //static const _primary = Color(0xFF2C4459);
-
   String _userName = 'Usuario';
-  //bool _isDarkMode = false;
-  bool _notifications = true;
-  bool _sound = true;
-
-  bool _changedForHome = false; // para notificar al Home que refresque
+  bool _changedForHome = false;
 
   @override
   void initState() {
@@ -39,14 +26,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
     final nombre = await UsuarioService.obtenerNombre(widget.idUsuario);
-    if (nombre != null) _userName = nombre;
-    else _userName = prefs.getString('user_name') ?? 'Usuario';
-    final config = await ConfiguracionService.obtenerPorUsuario(widget.idUsuario);
+    
     setState(() {
-      _userName = prefs.getString('user_name') ?? 'Usuario';
-      _notifications = prefs.getBool('notifications') ?? true;
-      _sound = prefs.getBool('sound') ?? true;
-      //_isDarkMode = prefs.getBool('dark_mode') ?? false;
+      _userName = nombre ?? prefs.getString('user_name') ?? 'Usuario';
     });
   }
 
@@ -62,48 +44,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     setState(() {
       _userName = newName;
-      _changedForHome = true;  // 🔥 indica que Home debe refrescar
+      _changedForHome = true;
     });
-  }
-
-
-  //Future<void> _updateBool(String key, bool value) async {
-  //  final prefs = await SharedPreferences.getInstance();
-  //  await prefs.setBool(key, value);
-  //}
-
-  Future<void> _updateConfig(String field, dynamic value) async {
-    setState(() {
-      if (field == 'notificaciones_activadas') _notifications = value as bool;
-      if (field == 'sonido') _sound = value as bool;
-    });
-
-    // 2. Guardar en Supabase
-    final config = await ConfiguracionService.obtenerPorUsuario(widget.idUsuario);
-
-    if (config != null) {
-      await ConfiguracionService.actualizarConfiguracion(config.idConfig!, {field: value});
-    } else {
-      final newConfig = Configuracion(
-        idUsuario: widget.idUsuario,
-        modoOscuro: Provider.of<ThemeProvider>(context, listen: false).isDarkMode,
-        notificacionesActivadas: field == 'notificaciones_activadas' ? value as bool : true,
-        sonido: field == 'sonido' ? value as bool : true,
-      );
-      await ConfiguracionService.crearConfiguracion(newConfig);
-    }
   }
 
   @override
   Widget build(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context);
-    final isDarkMode = themeProvider.isDarkMode;
     final isDark = themeProvider.isDarkMode;
     final cardColor = themeProvider.cardColor;
     final textColor = themeProvider.textColor;
     final primaryColor = themeProvider.primaryColor;
-    final appBarColor = themeProvider.appBarColor;
-
 
     return WillPopScope(
       onWillPop: () async {
@@ -147,160 +98,215 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ),
 
-        body: ListView(
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          children: [
-            const SizedBox(height: 8),
+        body: SingleChildScrollView(
+          child: Column(
+            children: [
+              const SizedBox(height: 24),
 
-            // Perfil
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0),
-              child: Card(
-                color: cardColor,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                elevation: 2,
-                child: ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: primaryColor,
-                    child: Text(
-                      _userName.isNotEmpty ? _userName[0].toUpperCase() : 'U',
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                  title: Text(
-                    _userName,
-                    style: TextStyle(
-                      color: textColor,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  trailing: TextButton(
-                    style: TextButton.styleFrom(
-                      foregroundColor: primaryColor,
-                      textStyle: const TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                    child: const Text('Editar...'),
-                    onPressed: () async {
-                      final result = await showDialog<String>(
-                        context: context,
-                        builder: (context) => _NameEditDialog(
-                          initialName: _userName,
-                          primary: primaryColor,
-                          bar: appBarColor,
+              // ✨ SECCIÓN DE PERFIL - Grande y destacada
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24.0),
+                child: Card(
+                  color: cardColor,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                  elevation: 4,
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      children: [
+                        // Avatar grande
+                        Container(
+                          width: 100,
+                          height: 100,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                primaryColor,
+                                primaryColor.withOpacity(0.7),
+                              ],
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: primaryColor.withOpacity(0.3),
+                                blurRadius: 20,
+                                offset: const Offset(0, 10),
+                              ),
+                            ],
+                          ),
+                          child: Center(
+                            child: Text(
+                              _userName.isNotEmpty ? _userName[0].toUpperCase() : 'U',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 42,
+                              ),
+                            ),
+                          ),
                         ),
-                      );
-                      if (result != null) await _updateName(result);
-                    },
+
+                        const SizedBox(height: 20),
+
+                        // Nombre
+                        Text(
+                          _userName,
+                          style: TextStyle(
+                            color: textColor,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 24,
+                          ),
+                        ),
+
+                        const SizedBox(height: 8),
+
+                        Text(
+                          'Usuario de Lumi',
+                          style: TextStyle(
+                            color: textColor.withOpacity(0.6),
+                            fontSize: 14,
+                          ),
+                        ),
+
+                        const SizedBox(height: 20),
+
+                        // Botón editar
+                        ElevatedButton.icon(
+                          onPressed: () async {
+                            final result = await showDialog<String>(
+                              context: context,
+                              builder: (context) => _NameEditDialog(
+                                initialName: _userName,
+                                primary: primaryColor,
+                                cardColor: cardColor,
+                              ),
+                            );
+                            if (result != null) await _updateName(result);
+                          },
+                          icon: const Icon(Icons.edit, size: 18),
+                          label: const Text('Editar nombre'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: primaryColor,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
-            ),
-            const SizedBox(height: 12),
 
-            // Preferencias
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0),
-              child: Card(
-                color: cardColor,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                elevation: 2,
+              const SizedBox(height: 24),
+
+              // ✨ SECCIÓN DE APARIENCIA
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24.0),
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    SwitchListTile(
-                      secondary: Icon(Icons.dark_mode, color: primaryColor),
-                      title: Text('Modo Oscuro',
-                          style: TextStyle(color: textColor, fontWeight: FontWeight.w600)),
-                      value: isDarkMode,
-                      activeColor: primaryColor,
-                      onChanged: (value) async {
-                        await themeProvider.toggleTheme(value);
-                        _changedForHome = true;
-                      },
+                    Padding(
+                      padding: const EdgeInsets.only(left: 4, bottom: 12),
+                      child: Text(
+                        'Apariencia',
+                        style: TextStyle(
+                          color: textColor.withOpacity(0.7),
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 1.2,
+                        ),
+                      ),
                     ),
-                    const Divider(height: 1),
-                    SwitchListTile(
-                      secondary: Icon(Icons.notifications, color: primaryColor),
-                      title: Text('Notificaciones',
-                          style: TextStyle(color: textColor, fontWeight: FontWeight.w600)),
-                      value: _notifications,
-                      activeColor: primaryColor,
-                      onChanged: (value) => _updateConfig('notificaciones_activadas', value),
-                    ),
-                    const Divider(height: 1),
-                    SwitchListTile(
-                      secondary: Icon(Icons.volume_up, color: primaryColor),
-                      title: Text('Sonido',
-                          style: TextStyle(color: textColor, fontWeight: FontWeight.w600)),
-                      value: _sound,
-                      activeColor: primaryColor,
-                      onChanged: (value) => _updateConfig('sonido', value),
+
+                    Card(
+                      color: cardColor,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                      elevation: 4,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        child: SwitchListTile(
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                          secondary: Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: primaryColor.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Icon(
+                              isDark ? Icons.dark_mode : Icons.light_mode,
+                              color: primaryColor,
+                              size: 28,
+                            ),
+                          ),
+                          title: Text(
+                            'Modo Oscuro',
+                            style: TextStyle(
+                              color: textColor,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 16,
+                            ),
+                          ),
+                          subtitle: Text(
+                            isDark ? 'Activo' : 'Desactivado',
+                            style: TextStyle(
+                              color: textColor.withOpacity(0.6),
+                              fontSize: 13,
+                            ),
+                          ),
+                          value: isDark,
+                          activeColor: primaryColor,
+                          onChanged: (value) async {
+                            await themeProvider.toggleTheme(value);
+                            _changedForHome = true;
+                          },
+                        ),
+                      ),
                     ),
                   ],
                 ),
               ),
-            ),
 
-            const SizedBox(height: 24),
+              const SizedBox(height: 32),
 
-            // Acciones
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0),
-              child: Column(
-                children: [
-                  ElevatedButton(
-                    onPressed: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Opciones guardadas')),
-                      );
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: primaryColor,
-                      foregroundColor: Colors.white,
-                      minimumSize: const Size.fromHeight(48),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                    ),
-                    child: const Text('Guardar cambios'),
-                  ),
-                  const SizedBox(height: 12),
-                  OutlinedButton(
-                    onPressed: () {
-                      showDialog(
-                        context: context,
-                        builder: (context) => AlertDialog(
-                          title: const Text('Restablecer ajustes'),
-                          content: const Text('¿Deseas restablecer ajustes a su valor por defecto?'),
-                          actions: [
-                            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
-                            TextButton(
-                              onPressed: () async {
-                                final prefs = await SharedPreferences.getInstance();
-                                await prefs.remove('user_name');
-                                await prefs.remove('notifications');
-                                await prefs.remove('sound');
-                                await prefs.remove('dark_mode');
-                                await _loadSettings();
-                                _changedForHome = true;
-                                if (mounted) Navigator.pop(context);
-                              },
-                              child: const Text('Restablecer'),
-                            ),
-                          ],
+              // ✨ INFO ADICIONAL
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24.0),
+                child: Card(
+                  color: primaryColor.withOpacity(0.05),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.info_outline,
+                          color: primaryColor,
+                          size: 24,
                         ),
-                      );
-                    },
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: primaryColor,
-                      side:  BorderSide(color: appBarColor),
-                      minimumSize: const Size.fromHeight(48),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Text(
+                            'Los cambios se guardan automáticamente',
+                            style: TextStyle(
+                              color: textColor.withOpacity(0.8),
+                              fontSize: 14,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                    child: const Text('Restablecer ajustes'),
                   ),
-                ],
+                ),
               ),
-            ),
-            const SizedBox(height: 24),
-          ],
+
+              const SizedBox(height: 40),
+            ],
+          ),
         ),
       ),
     );
@@ -310,11 +316,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
 class _NameEditDialog extends StatefulWidget {
   final String initialName;
   final Color primary;
-  final Color bar;
+  final Color cardColor;
+  
   const _NameEditDialog({
     required this.initialName,
     required this.primary,
-    required this.bar,
+    required this.cardColor,
     Key? key,
   }) : super(key: key);
 
@@ -340,27 +347,49 @@ class _NameEditDialogState extends State<_NameEditDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      title: const Text('Cambiar nombre'),
+      backgroundColor: widget.cardColor,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      title: Row(
+        children: [
+          Icon(Icons.edit, color: widget.primary),
+          const SizedBox(width: 12),
+          const Text('Cambiar nombre'),
+        ],
+      ),
       content: TextField(
         controller: _controller,
+        autofocus: true,
         decoration: InputDecoration(
           labelText: 'Nombre',
-          border: const OutlineInputBorder(),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
           focusedBorder: OutlineInputBorder(
-            borderSide: BorderSide(color: widget.primary),
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: widget.primary, width: 2),
           ),
         ),
       ),
       actions: [
         TextButton(
-          child: const Text('Cancelar'),
           onPressed: () => Navigator.pop(context),
+          child: Text(
+            'Cancelar',
+            style: TextStyle(color: widget.primary.withOpacity(0.7)),
+          ),
         ),
-        TextButton(
-          style: TextButton.styleFrom(foregroundColor: widget.bar),
+        ElevatedButton(
+          onPressed: () {
+            if (_controller.text.trim().isNotEmpty) {
+              Navigator.pop(context, _controller.text.trim());
+            }
+          },
+          style: ElevatedButton.styleFrom(
+            backgroundColor: widget.primary,
+            foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
           child: const Text('Guardar'),
-          onPressed: () => Navigator.pop(context, _controller.text.trim()),
         ),
       ],
     );

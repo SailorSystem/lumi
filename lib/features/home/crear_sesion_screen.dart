@@ -10,6 +10,7 @@ import '../../core/models/tema.dart';
 import '../../core/services/tema_service.dart';
 import '../../core/services/sesion_service.dart';
 import '../../core/providers/theme_provider.dart';
+import '../../core/services/notification_service.dart';
 
 class CrearNuevaSesionScreen extends StatefulWidget {
   const CrearNuevaSesionScreen({super.key});
@@ -202,6 +203,21 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
       final creada = await SesionService.crearSesion(nueva);
       
       print('✅ Sesión creada exitosamente con ID: ${creada?.idSesion}');
+
+      // ✅ AGREGAR: Programar notificaciones
+      if (creada != null && creada.idSesion != null) {
+        await NotificationService.programarRecordatorio(
+          idSesion: creada.idSesion!,
+          nombreSesion: creada.nombreSesion,
+          fechaSesion: creada.fecha,
+        );
+        
+        await NotificationService.programarNotificacionInicio(
+          idSesion: creada.idSesion!,
+          nombreSesion: creada.nombreSesion,
+          fechaSesion: creada.fecha,
+        );
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

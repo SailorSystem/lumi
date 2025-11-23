@@ -1,19 +1,21 @@
-// c:\Users\User\CODIGOS\Lumi\lumi_app\lib\widgets\lumi_char.dart
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../core/services/mood_service.dart';
 
 class LumiChar extends StatefulWidget {
   final double size;
   final VoidCallback? onTap;
   final Function(String message)? onMessage;
+  final int? estadoAnimo; // ✅ NUEVO: recibir el estado de ánimo
 
   const LumiChar({
     super.key,
     this.size = 84,
     this.onTap,
     this.onMessage,
+    this.estadoAnimo, // ✅ NUEVO
   });
 
   @override
@@ -21,28 +23,25 @@ class LumiChar extends StatefulWidget {
 }
 
 class _LumiCharState extends State<LumiChar> {
-  final audioPlayer = AudioPlayer();
-
-  final List<String> _motivationalMessages = [
-    '¡Tú puedes lograrlo! 💪',
-    'El éxito se construye día a día 📚',
-    'Cada minuto cuenta 🕒',
-    'El conocimiento es poder 🧠',
-    'Un paso más cerca de tus metas ⭐',
-  ];
+  final _audioPlayer = AudioPlayer();
 
   Future<void> _playSound() async {
     final prefs = await SharedPreferences.getInstance();
     final sonido = prefs.getBool('sound') ?? true;
+
     if (sonido) {
       try {
-        await audioPlayer.play(AssetSource('sounds/pop.mp3'));
+        await _audioPlayer.play(AssetSource('sounds/pop.mp3'));
       } catch (_) {}
     }
   }
 
   void _triggerMessage() {
-    final msg = _motivationalMessages[Random().nextInt(_motivationalMessages.length)];
+    // ✅ Usar el estado de ánimo para obtener mensajes apropiados
+    final estadoActual = widget.estadoAnimo ?? 2;
+    final mensajes = MoodService.obtenerMensajesAnimo(estadoActual);
+    final msg = mensajes[Random().nextInt(mensajes.length)];
+    
     _playSound();
     widget.onMessage?.call(msg);
     widget.onTap?.call();
@@ -50,6 +49,10 @@ class _LumiCharState extends State<LumiChar> {
 
   @override
   Widget build(BuildContext context) {
+    // ✅ Usar el estado de ánimo para determinar la imagen
+    final estadoActual = widget.estadoAnimo ?? 2;
+    final imagePath = MoodService.obtenerImagenAnimo(estadoActual);
+    
     return GestureDetector(
       onTap: _triggerMessage,
       child: Container(
@@ -63,15 +66,23 @@ class _LumiCharState extends State<LumiChar> {
             BoxShadow(
               color: Colors.black.withOpacity(0.15),
               blurRadius: 8,
-              offset: Offset(0, 2),
-            )
+              offset: const Offset(0, 2),
+            ),
           ],
         ),
         child: ClipOval(
           child: Image.asset(
-            'assets/images/lumi.png',
-            fit: BoxFit.cover,  // 🔥 AHORA OCUPA TODO EL CÍRCULO
+            imagePath,
+            fit: BoxFit.cover,
             alignment: Alignment.center,
+            errorBuilder: (context, error, stackTrace) {
+              // Fallback a la imagen por defecto si hay error
+              return Image.asset(
+                'assets/images/lumi.png',
+                fit: BoxFit.cover,
+                alignment: Alignment.center,
+              );
+            },
           ),
         ),
       ),
@@ -80,7 +91,7 @@ class _LumiCharState extends State<LumiChar> {
 
   @override
   void dispose() {
-    audioPlayer.dispose();
+    _audioPlayer.dispose();
     super.dispose();
   }
 }
