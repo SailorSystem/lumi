@@ -5,8 +5,10 @@ import '../../../core/providers/theme_provider.dart';
 import '../../../core/services/sesion_service.dart'; 
 import '../../../core/services/mood_service.dart';
 import '../../../core/models/sesion.dart';
+import '../../../core/services/stat_service.dart'; // ✅ AGREGADO
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../core/services/supabase_service.dart';
 import 'dart:async';
 
 class FlashcardsScreen extends StatefulWidget {
@@ -38,6 +40,8 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
   Timer? tiempoTimer;
   bool isStudying = false; // ✅ DEBE EXISTIR
   bool isResting = false;  // ✅ DEBE EXISTIR
+  int? _sesionRapidaId;
+  DateTime? _sesionInicioFecha; 
   // Para el descanso
   int _restSeconds = 0;
   Timer? _restTimer;
@@ -47,6 +51,48 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
     super.initState();
     _cargarDuracionEstipulada();
     _iniciarContadorTiempo();
+    _crearSesionRapidaSiNoExiste(); // ✅ AGREGAR ESTA LÍNEA
+  }
+  
+  Future<void> _crearSesionRapidaSiNoExiste() async {
+    if (widget.idSesion != null) {
+      print('📅 Sesión programada: ${widget.idSesion}');
+      return;
+    }
+    
+    print('🚀 Creando sesión rápida de Flashcards...');
+    
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final userId = prefs.getInt('user_id');
+      
+      if (userId == null) {
+        print('❌ No hay userId');
+        return;
+      }
+      
+      _sesionInicioFecha = DateTime.now(); // ✅ Guardar hora de inicio
+      
+      final nuevaSesion = Sesion(
+        idUsuario: userId,
+        nombreSesion: 'Sesión Rápida (Flashcards)',
+        fecha: _sesionInicioFecha!,
+        esRapida: true,
+        estado: 'programada',
+        duracionTotal: 0,
+      );
+      
+      final sesionCreada = await SesionService.crearSesion(nuevaSesion);
+      
+      if (sesionCreada != null) {
+        setState(() {
+          _sesionRapidaId = sesionCreada.idSesion;
+        });
+        print('✅ Sesión rápida creada con ID: ${sesionCreada.idSesion}');
+      }
+    } catch (e) {
+      print('❌ Error creando sesión rápida: $e');
+    }
   }
   Future<void> _cargarDuracionEstipulada() async {
     if (widget.idSesion == null) return;
@@ -173,26 +219,79 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
   }
 
   Future<void> _finalizarSesion() async {
-    if (widget.idSesion == null) {
-      print('⚠️ No hay idSesion para actualizar');
+    print('\n╔════════════════════════════════════════════════╗');
+    print('║   INICIANDO FINALIZACIÓN DE FLASHCARDS         ║');
+    print('╚════════════════════════════════════════════════╝');
+    
+    final sesionId = _sesionRapidaId ?? widget.idSesion;
+    
+    print('📋 DATOS INICIALES:');
+    print('   _sesionRapidaId: $_sesionRapidaId');
+    print('   widget.idSesion: ${widget.idSesion}');
+    print('   sesionId final: $sesionId');
+    print('   Es sesión rápida: ${_sesionRapidaId != null}');
+    
+    if (sesionId == null) {
+      print('❌ ERROR: sesionId es null, abortando...\n');
       return;
     }
 
     final prefs = await SharedPreferences.getInstance();
     final userId = prefs.getInt('user_id');
+    print('   userId: $userId');
+    
     if (userId != null) {
+      print('\n😊 Actualizando estado de ánimo...');
       await MoodService.calcularYActualizarEstadoAnimo(userId);
+      print('   ✅ Estado de ánimo actualizado');
     }
     
     try {
-      print('🔄 Finalizando sesión de Flashcards ${widget.idSesion}...');
+      print('\n🔄 ACTUALIZANDO SESIÓN EN BD...');
+      print('   Sesión ID: $sesionId');
+      print('   Datos a actualizar:');
+      print('   - estado: finalizada');
+      print('   - duracion_total: 0');
+      print('   - fecha: ${DateTime.now().toIso8601String()}');
       
-      await SesionService.actualizarEstadoSesion(
-        widget.idSesion!,
-        'finalizada',
-      );
+      try {
+        await SesionService.actualizarSesion(
+          sesionId,
+          {
+            'estado': 'finalizada',
+            'duracion_total': 0,
+            'fecha': DateTime.now().toIso8601String(),
+          },
+        );
+        print('   ✅ Sesión actualizada en BD');
+      } catch (errorUpdate) {
+        print('   ❌ ERROR al actualizar sesión: $errorUpdate');
+        rethrow;
+      }
       
-      print('✅ Sesión ${widget.idSesion} marcada como finalizada');
+      print('\n📊 GUARDANDO ESTADÍSTICA...');
+      if (userId != null) {
+        try {
+          final statGuardada = await StatService.registrarEstadistica(
+            idUsuario: userId,
+            idSesion: sesionId,
+            tiempoTotalSegundos: 0,
+            ciclosCompletados: 1,
+          );
+          
+          if (statGuardada) {
+            print('   ✅ Estadística guardada correctamente');
+          } else {
+            print('   ⚠️ Estadística retornó false');
+          }
+        } catch (errorStat) {
+          print('   ❌ ERROR guardando estadística: $errorStat');
+        }
+      }
+      
+      print('\n╔════════════════════════════════════════════════╗');
+      print('║          ✅ FINALIZACIÓN EXITOSA               ║');
+      print('╚════════════════════════════════════════════════╝\n');
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -203,8 +302,15 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
           ),
         );
       }
-    } catch (e) {
-      print('❌ Error finalizando sesión: $e');
+    } catch (e, stackTrace) {
+      print('\n╔════════════════════════════════════════════════╗');
+      print('║             ❌ ERROR CRÍTICO                   ║');
+      print('╚════════════════════════════════════════════════╝');
+      print('Error: $e');
+      print('Stack trace:');
+      print(stackTrace);
+      print('════════════════════════════════════════════════\n');
+      
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -216,6 +322,8 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
     }
   }
 
+  
+  
   // ✅ AGREGAR TODO ESTE MÉTODO
   Widget _buildCompletarButton() {
     final tp = Provider.of<ThemeProvider>(context);
@@ -794,23 +902,21 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
     );
     
     // ✅ FINALIZAR SESIÓN SI CONFIRMA SALIR
-    if (salir == true && widget.idSesion != null) {
-      try {
-        print('🔄 Finalizando sesión Flashcards ${widget.idSesion}...');
-        
-        await SesionService.actualizarEstadoSesion(
-          widget.idSesion!,
-          'finalizada',
-        );
-        
-        print('✅ Sesión ${widget.idSesion} finalizada automáticamente');
-        
-        await Future.delayed(const Duration(milliseconds: 300));
-      } catch (e) {
-        print('❌ Error finalizando sesión: $e');
+    if (salir == true) {
+      final sesionId = _sesionRapidaId ?? widget.idSesion;
+      
+      if (sesionId != null) {
+        try {
+          print('🔄 Finalizando Flashcards...');
+          await _finalizarSesion();
+          print('✅ Flashcards finalizada');
+          await Future.delayed(const Duration(milliseconds: 300));
+        } catch (e) {
+          print('❌ Error: $e');
+        }
       }
     }
-    
+      
     return salir == true;
   }
 

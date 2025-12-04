@@ -34,8 +34,18 @@ class SesionService {
   }
 
   static Future<void> eliminarSesion(int idSesion) async {
-    await SupabaseService.delete(table, 'id_sesion', idSesion);
+    try {
+      print('🗑️ Eliminando sesión $idSesion...');
+      
+      await SupabaseService.delete('sesiones', 'id_sesion', idSesion);
+      
+      print('✅ Sesión $idSesion eliminada de BD');
+    } catch (e) {
+      print('❌ Error eliminando sesión: $e');
+      rethrow;
+    }
   }
+
 
     // ✅ NUEVO: Actualizar estado de sesión
   static Future<void> actualizarEstadoSesion(int idSesion, String nuevoEstado) async {

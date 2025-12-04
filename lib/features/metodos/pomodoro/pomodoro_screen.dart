@@ -7,6 +7,8 @@ import '../../../core/providers/theme_provider.dart';
 import '../../../core/services/sesion_service.dart'; 
 import '../../../core/services/mood_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../core/services/stat_service.dart'; 
+import '../../../core/models/sesion.dart';
 
 class PomodoroScreen extends StatefulWidget {
   final int? idSesion; // ✅ AGREGADO
@@ -29,6 +31,8 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
   int completedCycles = 0;
   bool isRunning = false;
   String phase = "Enfoque";
+  int? _sesionRapidaId;
+  DateTime? _sesionInicioFecha; // ✅ NUEVA VARIABLE para guardar cuándo inició
 
   int? duracionEstipulada; // En segundos
   int tiempoTranscurrido = 0; // Tiempo total transcurrido
@@ -39,6 +43,8 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
   void initState() {
     super.initState();
     _cargarDuracionEstipulada();
+    _crearSesionRapidaSiNoExiste(); // ✅ AGREGAR ESTA LÍNEA
+
   }
     // ✅ AGREGAR: Cargar duración de la sesión
   Future<void> _cargarDuracionEstipulada() async {
@@ -95,6 +101,48 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
     });
   }
 
+
+ // ✅ AGREGAR ESTE MÉTODO COMPLETO
+  Future<void> _crearSesionRapidaSiNoExiste() async {
+    if (widget.idSesion != null) {
+      print('📅 Sesión programada: ${widget.idSesion}');
+      return;
+    }
+    
+    print('🚀 Creando sesión rápida de Pomodoro...');
+    
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final userId = prefs.getInt('user_id');
+      
+      if (userId == null) {
+        print('❌ No hay userId');
+        return;
+      }
+      
+      _sesionInicioFecha = DateTime.now(); // ✅ Guardar hora de inicio
+      
+      final nuevaSesion = Sesion(
+        idUsuario: userId,
+        nombreSesion: 'Sesión Rápida (Pomodoro)',
+        fecha: _sesionInicioFecha!, // ✅ Usar fecha de inicio
+        esRapida: true,
+        estado: 'programada',
+        duracionTotal: 0,
+      );
+      
+      final sesionCreada = await SesionService.crearSesion(nuevaSesion);
+      
+      if (sesionCreada != null) {
+        setState(() {
+          _sesionRapidaId = sesionCreada.idSesion;
+        });
+        print('✅ Sesión rápida creada con ID: ${sesionCreada.idSesion}');
+      }
+    } catch (e) {
+      print('❌ Error creando sesión rápida: $e');
+    }
+  }
 
   Future<void> _mostrarDialogoTiempoCumplido() async {
     final tp = Provider.of<ThemeProvider>(context, listen: false);
@@ -172,55 +220,120 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
     }
   }
 
-  // ✅ Método para finalizar sesión
-  Future<void> _finalizarSesion() async {
-    if (widget.idSesion == null) {
-      print('⚠️ No hay idSesion para actualizar');
-      return;
+Future<void> _finalizarSesion() async {
+  print('\n╔════════════════════════════════════════════════╗');
+  print('║   INICIANDO FINALIZACIÓN DE SESIÓN POMODORO    ║');
+  print('╚════════════════════════════════════════════════╝');
+  
+  final sesionId = _sesionRapidaId ?? widget.idSesion;
+  
+  print('📋 DATOS INICIALES:');
+  print('   _sesionRapidaId: $_sesionRapidaId');
+  print('   widget.idSesion: ${widget.idSesion}');
+  print('   sesionId final: $sesionId');
+  print('   Es sesión rápida: ${_sesionRapidaId != null}');
+  
+  if (sesionId == null) {
+    print('❌ ERROR: sesionId es null, abortando...\n');
+    return;
+  }
+  
+  try {
+    print('\n📊 CALCULANDO DATOS:');
+    final duracionTotal = completedCycles * (studyTime + shortBreak);
+    print('   completedCycles: $completedCycles');
+    print('   studyTime: $studyTime');
+    print('   shortBreak: $shortBreak');
+    print('   duracionTotal: $duracionTotal segundos');
+    
+    final prefs = await SharedPreferences.getInstance();
+    final userId = prefs.getInt('user_id');
+    print('   userId: $userId');
+    
+    if (userId != null) {
+      print('\n😊 Actualizando estado de ánimo...');
+      await MoodService.calcularYActualizarEstadoAnimo(userId);
+      print('   ✅ Estado de ánimo actualizado');
     }
     
+    print('\n🔄 ACTUALIZANDO SESIÓN EN BD...');
+    print('   Sesión ID: $sesionId');
+    print('   Datos a actualizar:');
+    print('   - estado: finalizada');
+    print('   - duracion_total: $duracionTotal');
+    print('   - fecha: ${DateTime.now().toIso8601String()}');
+    
     try {
-      print('🔄 Finalizando sesión ${widget.idSesion}...');
-      
-      // Calcular duración total en segundos
-      final duracionTotal = completedCycles * (studyTime + shortBreak);
-      final prefs = await SharedPreferences.getInstance();
-      final userId = prefs.getInt('user_id');
-      if (userId != null) {
-        await MoodService.calcularYActualizarEstadoAnimo(userId);
-      }
       await SesionService.actualizarSesion(
-        widget.idSesion!,
+        sesionId,
         {
           'estado': 'finalizada',
           'duracion_total': duracionTotal,
+          'fecha': DateTime.now().toIso8601String(),
         },
       );
-      
-      print('✅ Sesión ${widget.idSesion} marcada como finalizada');
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('✅ Sesión completada correctamente'),
-            backgroundColor: Colors.green,
-            duration: Duration(seconds: 2),
-          ),
+      print('   ✅ Sesión actualizada en BD');
+    } catch (errorUpdate) {
+      print('   ❌ ERROR al actualizar sesión: $errorUpdate');
+      rethrow;
+    }
+    
+    print('\n📊 GUARDANDO ESTADÍSTICA...');
+    if (userId != null) {
+      try {
+        final statGuardada = await StatService.registrarEstadistica(
+          idUsuario: userId,
+          idSesion: sesionId,
+          tiempoTotalSegundos: duracionTotal,
+          ciclosCompletados: completedCycles,
         );
-      }
-    } catch (e) {
-      print('❌ Error finalizando sesión: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error al guardar sesión: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        
+        if (statGuardada) {
+          print('   ✅ Estadística guardada correctamente');
+        } else {
+          print('   ⚠️ Estadística retornó false');
+        }
+      } catch (errorStat) {
+        print('   ❌ ERROR guardando estadística: $errorStat');
       }
     }
+    
+    print('\n╔════════════════════════════════════════════════╗');
+    print('║          ✅ FINALIZACIÓN EXITOSA               ║');
+    print('╚════════════════════════════════════════════════╝\n');
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('✅ Sesión completada correctamente'),
+          backgroundColor: Colors.green,
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
+  } catch (e, stackTrace) {
+    print('\n╔════════════════════════════════════════════════╗');
+    print('║             ❌ ERROR CRÍTICO                   ║');
+    print('╚════════════════════════════════════════════════╝');
+    print('Error: $e');
+    print('Stack trace:');
+    print(stackTrace);
+    print('════════════════════════════════════════════════\n');
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error al guardar sesión: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
+}
 
+  
+  
+  
   // ✅ Botón "Completar Sesión"
   Widget _buildCompletarButton() {
     final themeProvider = Provider.of<ThemeProvider>(context);
@@ -291,6 +404,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
       ),
     );
   }
+
 
   void _handlePhaseCompletion() {
     setState(() {
@@ -401,21 +515,23 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
     );
     
     // ✅ FINALIZAR SESIÓN SI CONFIRMA SALIR
-    if (salir == true && widget.idSesion != null) {
-      try {
-        print('🔄 Finalizando sesión Pomodoro ${widget.idSesion}...');
-        
-        await SesionService.actualizarEstadoSesion(
-          widget.idSesion!,
-          'finalizada',
-        );
-        
-        print('✅ Sesión ${widget.idSesion} finalizada automáticamente');
-        
-        // Pequeño delay para que Supabase procese
-        await Future.delayed(const Duration(milliseconds: 300));
-      } catch (e) {
-        print('❌ Error finalizando sesión: $e');
+    if (salir == true) {
+      final sesionId = _sesionRapidaId ?? widget.idSesion;
+      
+      if (sesionId != null) {
+        try {
+          print('🔄 Usuario confirmó salir, finalizando sesión...');
+          
+          // ✅ CAMBIO: Llamar al método completo que guarda estadísticas
+          await _finalizarSesion();
+          
+          print('✅ Sesión finalizada correctamente');
+          
+          // Pequeño delay para asegurar que todo se guarde
+          await Future.delayed(const Duration(milliseconds: 300));
+        } catch (e) {
+          print('❌ Error finalizando sesión: $e');
+        }
       }
     }
     

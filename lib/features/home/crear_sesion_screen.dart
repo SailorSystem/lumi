@@ -142,14 +142,47 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
   Future<void> saveSession() async {
     print('🔵 saveSession() iniciado');
     
+    // ✅ VALIDACIÓN 1: Formulario básico
     if (!_formKey.currentState!.validate()) {
       print('❌ Validación de formulario falló');
       return;
     }
 
+    // ✅ VALIDACIÓN 2: Título no vacío
+    if (titleController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('⚠️ Debes ingresar un título para la sesión'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    // ✅ VALIDACIÓN 3: Título no muy largo
+    if (titleController.text.trim().length > 50) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('⚠️ El título es muy largo (máximo 50 caracteres)'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    // ✅ VALIDACIÓN 4: Materia seleccionada
+    if (materiaSel == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('⚠️ Debes seleccionar una materia'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
     final prefs = await SharedPreferences.getInstance();
     final userId = prefs.getInt('user_id');
-    
     print('👤 UserID obtenido de SharedPreferences: $userId');
     
     if (userId == null) {
@@ -161,9 +194,9 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
     }
 
     final metodoId = _selectedMetodoId;
-    
     print('✅ Método ID seleccionado: $metodoId');
 
+    // ✅ VALIDACIÓN 5: Construir fecha completa
     final selectedDateTime = DateTime(
       selectedDate.year,
       selectedDate.month,
@@ -172,13 +205,54 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
       selectedTime.minute,
     );
 
+    final ahora = DateTime.now();
+    final diferencia = selectedDateTime.difference(ahora);
+
+    // ✅ VALIDACIÓN 6: Fecha debe ser futura (mínimo 5 minutos)
+    if (diferencia.inMinutes < 5) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            diferencia.isNegative
+                ? '⚠️ La fecha seleccionada ya pasó. Ajústala al futuro.'
+                : '⚠️ La sesión debe ser al menos 5 minutos en el futuro',
+          ),
+          backgroundColor: Colors.orange,
+          duration: const Duration(seconds: 4),
+          action: SnackBarAction(
+            label: 'Ajustar',
+            textColor: Colors.white,
+            onPressed: () {
+              setState(() {
+                final sugerida = DateTime.now().add(const Duration(minutes: 10));
+                selectedDate = sugerida;
+                selectedTime = TimeOfDay.fromDateTime(sugerida);
+              });
+            },
+          ),
+        ),
+      );
+      return;
+    }
+
+    // ✅ VALIDACIÓN 7: Duración mínima
+    if (selectedDuration.inSeconds < 300) { // Mínimo 5 minutos
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('⚠️ La duración debe ser al menos 5 minutos'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    // ✅ TODAS LAS VALIDACIONES PASARON
     int? temaId;
     if (materiaSel != null) {
       temaId = materiaSel!['id_tema'] as int?;
     }
 
     final duracionSegundos = selectedDuration.inSeconds;
-
     final nueva = Sesion(
       idSesion: null,
       idUsuario: userId,
@@ -201,10 +275,9 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
 
     try {
       final creada = await SesionService.crearSesion(nueva);
-      
       print('✅ Sesión creada exitosamente con ID: ${creada?.idSesion}');
 
-      // ✅ AGREGAR: Programar notificaciones
+      // Programar notificaciones
       if (creada != null && creada.idSesion != null) {
         await NotificationService.programarRecordatorio(
           idSesion: creada.idSesion!,
@@ -217,13 +290,16 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
           nombreSesion: creada.nombreSesion,
           fechaSesion: creada.fecha,
         );
+        
+        print('🔔 Notificaciones programadas');
       }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text("Sesión creada con éxito"),
+            content: Text("✅ Sesión creada con éxito"),
             backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
           ),
         );
         Navigator.pop(context, true);
@@ -233,13 +309,14 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text("Error al guardar: $e"),
+            content: Text("❌ Error al guardar: $e"),
             backgroundColor: Colors.red,
           ),
         );
       }
     }
   }
+
 
   Widget _lumiPickerButton({
     required IconData icon,

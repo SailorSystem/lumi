@@ -13,6 +13,9 @@ import '../../../core/services/sesion_service.dart';
 import '../../../core/services/mood_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../core/services/stat_service.dart'; 
+import '../../../core/models/sesion.dart';
+
 
 class MindNode {
   String text;
@@ -34,11 +37,12 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
   int _nodesCreated = 0;
   // Key para capturar el widget (RepaintBoundary)
   final GlobalKey _mapRepaintKey = GlobalKey();
-
+  int? _sesionRapidaId;
   int? duracionEstipulada;
   int tiempoTranscurrido = 0;
   bool tiempoEstipuladoCumplido = false;
   Timer? tiempoTimer;
+  DateTime? _sesionInicioFecha;
 
   @override
   void initState() {
@@ -46,6 +50,7 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
     _createRootNode();
     _cargarDuracionEstipulada();
     _iniciarContadorTiempo();
+    _crearSesionRapidaSiNoExiste(); // ✅ AGREGAR ESTA LÍNEA
   }
 
   Future<void> _cargarDuracionEstipulada() async {
@@ -82,6 +87,46 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
     });
   }
 
+  Future<void> _crearSesionRapidaSiNoExiste() async {
+    if (widget.idSesion != null) {
+      print('📅 Sesión programada: ${widget.idSesion}');
+      return;
+    }
+    
+    print('🚀 Creando sesión rápida de Mapa Mental...');
+    
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final userId = prefs.getInt('user_id');
+      
+      if (userId == null) {
+        print('❌ No hay userId');
+        return;
+      }
+      
+      _sesionInicioFecha = DateTime.now(); // ✅ Guardar hora de inicio
+      
+      final nuevaSesion = Sesion(
+        idUsuario: userId,
+        nombreSesion: 'Sesión Rápida (Mapa Mental)',
+        fecha: _sesionInicioFecha!,
+        esRapida: true,
+        estado: 'programada',
+        duracionTotal: 0,
+      );
+      
+      final sesionCreada = await SesionService.crearSesion(nuevaSesion);
+      
+      if (sesionCreada != null) {
+        setState(() {
+          _sesionRapidaId = sesionCreada.idSesion;
+        });
+        print('✅ Sesión rápida creada con ID: ${sesionCreada.idSesion}');
+      }
+    } catch (e) {
+      print('❌ Error creando sesión rápida: $e');
+    }
+  }
   Future<void> _mostrarDialogoTiempoCumplido() async {
     final tp = Provider.of<ThemeProvider>(context, listen: false);
     
@@ -204,25 +249,79 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
   }
 
   Future<void> _finalizarSesion() async {
-    if (widget.idSesion == null) {
-      print('⚠️ No hay idSesion para actualizar');
+    print('\n╔════════════════════════════════════════════════╗');
+    print('║   INICIANDO FINALIZACIÓN DE MAPA MENTAL        ║');
+    print('╚════════════════════════════════════════════════╝');
+    
+    final sesionId = _sesionRapidaId ?? widget.idSesion;
+    
+    print('📋 DATOS INICIALES:');
+    print('   _sesionRapidaId: $_sesionRapidaId');
+    print('   widget.idSesion: ${widget.idSesion}');
+    print('   sesionId final: $sesionId');
+    print('   Es sesión rápida: ${_sesionRapidaId != null}');
+    
+    if (sesionId == null) {
+      print('❌ ERROR: sesionId es null, abortando...\n');
       return;
     }
+    
     final prefs = await SharedPreferences.getInstance();
     final userId = prefs.getInt('user_id');
+    print('   userId: $userId');
+    
     if (userId != null) {
+      print('\n😊 Actualizando estado de ánimo...');
       await MoodService.calcularYActualizarEstadoAnimo(userId);
+      print('   ✅ Estado de ánimo actualizado');
     }
     
     try {
-      print('🔄 Finalizando sesión de Mapa Mental ${widget.idSesion}...');
+      print('\n🔄 ACTUALIZANDO SESIÓN EN BD...');
+      print('   Sesión ID: $sesionId');
+      print('   Datos a actualizar:');
+      print('   - estado: finalizada');
+      print('   - duracion_total: 0');
+      print('   - fecha: ${DateTime.now().toIso8601String()}');
       
-      await SesionService.actualizarEstadoSesion(
-        widget.idSesion!,
-        'finalizada',
-      );
+      try {
+        await SesionService.actualizarSesion(
+          sesionId,
+          {
+            'estado': 'finalizada',
+            'duracion_total': 0,
+            'fecha': DateTime.now().toIso8601String(),
+          },
+        );
+        print('   ✅ Sesión actualizada en BD');
+      } catch (errorUpdate) {
+        print('   ❌ ERROR al actualizar sesión: $errorUpdate');
+        rethrow;
+      }
       
-      print('✅ Sesión ${widget.idSesion} marcada como finalizada');
+      print('\n📊 GUARDANDO ESTADÍSTICA...');
+      if (userId != null) {
+        try {
+          final statGuardada = await StatService.registrarEstadistica(
+            idUsuario: userId,
+            idSesion: sesionId,
+            tiempoTotalSegundos: 0,
+            ciclosCompletados: 1,
+          );
+          
+          if (statGuardada) {
+            print('   ✅ Estadística guardada correctamente');
+          } else {
+            print('   ⚠️ Estadística retornó false');
+          }
+        } catch (errorStat) {
+          print('   ❌ ERROR guardando estadística: $errorStat');
+        }
+      }
+      
+      print('\n╔════════════════════════════════════════════════╗');
+      print('║          ✅ FINALIZACIÓN EXITOSA               ║');
+      print('╚════════════════════════════════════════════════╝\n');
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -233,8 +332,15 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
           ),
         );
       }
-    } catch (e) {
-      print('❌ Error finalizando sesión: $e');
+    } catch (e, stackTrace) {
+      print('\n╔════════════════════════════════════════════════╗');
+      print('║             ❌ ERROR CRÍTICO                   ║');
+      print('╚════════════════════════════════════════════════╝');
+      print('Error: $e');
+      print('Stack trace:');
+      print(stackTrace);
+      print('════════════════════════════════════════════════\n');
+      
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -246,6 +352,7 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
     }
   }
 
+  
   // ✅ AGREGAR TODO ESTE MÉTODO
   Widget _buildCompletarButton() {
     final tp = Provider.of<ThemeProvider>(context);
@@ -577,20 +684,18 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
     );
     
     // ✅ FINALIZAR SESIÓN SI CONFIRMA SALIR
-    if (salir == true && widget.idSesion != null) {
-      try {
-        print('🔄 Finalizando sesión Mapa Mental ${widget.idSesion}...');
-        
-        await SesionService.actualizarEstadoSesion(
-          widget.idSesion!,
-          'finalizada',
-        );
-        
-        print('✅ Sesión ${widget.idSesion} finalizada automáticamente');
-        
-        await Future.delayed(const Duration(milliseconds: 300));
-      } catch (e) {
-        print('❌ Error finalizando sesión: $e');
+    if (salir == true) {
+      final sesionId = _sesionRapidaId ?? widget.idSesion;
+      
+      if (sesionId != null) {
+        try {
+          print('🔄 Finalizando Mapa Mental...');
+          await _finalizarSesion();
+          print('✅ Mapa Mental finalizado');
+          await Future.delayed(const Duration(milliseconds: 300));
+        } catch (e) {
+          print('❌ Error: $e');
+        }
       }
     }
     
