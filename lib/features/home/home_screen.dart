@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:provider/provider.dart';
+import '../../core/services/connectivity_service.dart';
 
 import 'crear_sesion_screen.dart';
 import 'start_screen.dart';
@@ -24,6 +25,10 @@ import '../../core/services/stat_service.dart';
 import '../../core/providers/theme_provider.dart';
 import '../../core/services/mood_service.dart';
 import 'firstre_screen.dart';
+import '../../core/services/notification_service.dart';
+import '../../core/services/usage_tracker.dart';
+import '../../core/services/stats_usage_service.dart';
+
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -76,6 +81,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
     _loadUserData();
     _loadCompletedSessions();
+    _iniciarTrackingTiempo();
+
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkFirstTime();
@@ -102,7 +109,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
     WidgetsBinding.instance.removeObserver(this);
     _enviarTiempoUsoFinal(); // Envía el tiempo pendiente al cerrar
-
+    UsageTracker.detener();
     super.dispose();
   }
 
@@ -140,15 +147,30 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused || state == AppLifecycleState.detached) {
-      _enviarTiempoUsoFinal();
+    super.didChangeAppLifecycleState(state);
+    
+    if (state == AppLifecycleState.paused) {
+      // App minimizada
+      UsageTracker.detener();
+      print('📱 App pausada, tracking detenido');
     } else if (state == AppLifecycleState.resumed) {
-      // ✅ AGREGAR: Recargar datos al volver
-      print('📱 App resumida, recargando datos...');
-      _loadCompletedSessions();
+      // App restaurada
+      _iniciarTrackingTiempo();
+      print('📱 App resumida, tracking reiniciado');
     }
   }
 
+  Future<void> _iniciarTrackingTiempo() async {
+    final prefs = await SharedPreferences.getInstance();
+    final userId = prefs.getInt('user_id');
+    
+    if (userId != null) {
+      UsageTracker.iniciar(userId);
+      print('✅ Tracking iniciado automáticamente para usuario $userId');
+    } else {
+      print('⚠️ No se pudo iniciar tracking: userId es null');
+    }
+  }
 
   Future<void> _loadUserData() async {
     final prefs = await SharedPreferences.getInstance();
@@ -228,21 +250,48 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     print('👤 UserID: $userId');
 
     try {
-      // ✅ PRIMERO: Marcar sesiones pasadas como incompletas
+      // ✅ Verificar conectividad primero
+      final hayConexion = await ConnectivityService.verificarConexion();
+      
+      if (!hayConexion) {
+        print('❌ Sin conexión a internet');
+        if (mounted) {
+          setState(() {
+            _completedSessions = [];
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('⚠️ Sin conexión. Verifica tu red.'),
+              backgroundColor: Colors.orange,
+              action: SnackBarAction(
+                label: 'REINTENTAR',
+                textColor: Colors.white,
+                onPressed: _loadCompletedSessions,
+              ),
+            ),
+          );
+        }
+        return;
+      }
+      
+      // ✅ Marcar sesiones pasadas como incompletas
       await _marcarSesionesIncompletas();
       
-      // ✅ SEGUNDO: Cargar solo sesiones programadas (presente y futuras)
-      final ahora = DateTime.now();
-      
+      // ✅ Cargar sesiones con retry
       print('🌐 Cargando desde Supabase...');
       
-      final response = await Supabase.instance.client
-          .from('sesiones')
-          .select()
-          .eq('id_usuario', userId)
-          .eq('estado', 'programada')
-          .gte('fecha', ahora.toIso8601String()) // ✅ Solo sesiones futuras
-          .order('fecha', ascending: true); // Ordenar por fecha ascendente
+      final ahora = DateTime.now();
+      
+      final response = await ConnectivityService.ejecutarConReintento(
+        operacion: () => Supabase.instance.client
+            .from('sesiones')
+            .select()
+            .eq('id_usuario', userId)
+            .eq('estado', 'programada')
+            .gte('fecha', ahora.toIso8601String())
+            .order('fecha', ascending: true),
+        intentosMaximos: 3,
+      );
       
       print('📦 Respuesta de Supabase: ${response.length} sesiones programadas');
 
@@ -263,9 +312,13 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       print('❌ Error cargando sesiones: $e');
       
       if (mounted) {
+        setState(() {
+          _completedSessions = [];
+        });
+        
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error al cargar sesiones: $e'),
+            content: Text('Error al cargar sesiones: ${e.toString().substring(0, 50)}...'),
             backgroundColor: Colors.red,
             action: SnackBarAction(
               label: 'REINTENTAR',
@@ -277,6 +330,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       }
     }
   }
+
 
   // ✅ NUEVO MÉTODO: Recargar sesiones con pull-to-refresh
   Future<void> _refreshSessions() async {
@@ -342,6 +396,100 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             onPressed: () => Navigator.push(context,
                 MaterialPageRoute(builder: (_) => const StatsScreen())),
           ),
+          // ✅ TEMPORAL: Botón para probar notificaciones
+          // ✅ Botón de prueba de notificación (con protección de crashes)
+          /*IconButton(
+            icon: const Icon(Icons.notifications_active, color: Colors.orange),
+            tooltip: 'Probar notificación',
+            onPressed: () async {
+              try {
+                final ahora = DateTime.now();
+                final testDate = ahora.add(const Duration(seconds: 10));
+                
+                print('🧪 ==== PRUEBA DE NOTIFICACIÓN ====');
+                print('   - Ahora: $ahora');
+                print('   - Fecha test: $testDate');
+                
+                final exito = await NotificationService.programarNotificacionInicio(
+                  idSesion: 99999,
+                  nombreSesion: 'Prueba de Notificación',
+                  fechaSesion: testDate,
+                );
+                
+                if (exito) {
+                  await NotificationService.listarPendientes();
+                  
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('⏰ Notificación de prueba en 10 segundos'),
+                        duration: Duration(seconds: 3),
+                        backgroundColor: Colors.green,
+                      ),
+                    );
+                  }
+                } else {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('❌ Error programando notificación'),
+                        duration: Duration(seconds: 3),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  }
+                }
+                
+                print('🧪 ================================');
+              } catch (e, stackTrace) {
+                print('❌ CRASH en botón de prueba: $e');
+                print('Stack trace: $stackTrace');
+                
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Error: ${e.toString().substring(0, 50)}'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              }
+            },
+          ),*/
+
+          // TEMPORAL: Botón para probar tracking
+          IconButton(
+            icon: const Icon(Icons.timer, color: Colors.blue),
+            tooltip: 'Probar tracking',
+            onPressed: () async {
+              final prefs = await SharedPreferences.getInstance();
+              final userId = prefs.getInt('user_id');
+              
+              if (userId != null) {
+                final exito = await StatsUsageService.incrementarTiempoUso(userId, 10);
+                
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        exito 
+                          ? '✅ 10 segundos agregados' 
+                          : '❌ Error al agregar tiempo'
+                      ),
+                      backgroundColor: exito ? Colors.green : Colors.red,
+                    ),
+                  );
+                }
+                
+                // Mostrar tiempo total
+                final tiempoTotal = await StatsUsageService.obtenerTiempoUso(userId);
+                print('⏱️ Tiempo total: ${StatsUsageService.formatearTiempo(tiempoTotal)}');
+              }
+            },
+          ),
+
+
+
           IconButton(
             icon: Icon(Icons.settings, color: themeProvider.primaryColor),
             onPressed: () async {
@@ -553,7 +701,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                           Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 16),
                             child: _completedSessions.isEmpty
-                                ? _emptyState()
+                                ? emptyState(themeProvider.cardColor, themeProvider.textColor, themeProvider.primaryColor)
                                 : Column(
                                     children: _completedSessions
                                         .take(50)
@@ -808,25 +956,36 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 
   // --------------------------- SIN SESIONES ---------------------------
-  Widget _emptyState() {
+  Widget emptyState(Color cardColor, Color textColor, Color primary) {  // ✅ AGREGAR PARÁMETROS
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.92),
+        color: cardColor.withOpacity(0.92),  // ✅ Usar cardColor del tema
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.black12),
+        border: Border.all(color: primary.withOpacity(0.2)),  // ✅ Usar primary del tema
       ),
       child: Row(
-        children: const [
-          Icon(Icons.hourglass_empty, color: _primary),
-          SizedBox(width: 10),
+        children: [
+          Icon(
+            Icons.hourglass_empty,
+            color: primary,  // ✅ Usar primary del tema
+            size: 28,
+          ),
+          const SizedBox(width: 10),
           Expanded(
-            child: Text('Aún no hay sesiones. Crea tu primera sesión para comenzar.'),
+            child: Text(
+              'Aún no hay sesiones. Crea tu primera sesión para comenzar.',
+              style: TextStyle(
+                color: textColor,  // ✅ Usar textColor del tema
+                fontSize: 14,
+              ),
+            ),
           ),
         ],
       ),
     );
   }
+
 
   // ----------------- PRIMERA VEZ --------------------
   Future<void> _checkFirstTime() async {

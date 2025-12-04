@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/services/usuario_service.dart';
 import 'package:provider/provider.dart';
 import '../../core/providers/theme_provider.dart';
+import '../../core/services/sound_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   final int idUsuario;
@@ -266,6 +267,81 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           },
                         ),
                       ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 32),
+              // ✨ SONIDO — NUEVA SECCIÓN
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.only(left: 4, bottom: 12),
+                      child: Text(
+                        'Sonido',
+                        style: TextStyle(
+                          color: textColor.withOpacity(0.7),
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 1.2,
+                        ),
+                      ),
+                    ),
+
+                    FutureBuilder<bool>(
+                      future: SoundService.isSoundEnabled(),
+                      builder: (context, snapshot) {
+                        bool soundOn = snapshot.data ?? true;
+
+                        return Card(
+                          color: cardColor,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                          elevation: 4,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            child: SwitchListTile(
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                              secondary: Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: primaryColor.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Icon(
+                                  Icons.volume_up,
+                                  color: primaryColor,
+                                  size: 28,
+                                ),
+                              ),
+                              title: Text(
+                                'Sonido',
+                                style: TextStyle(
+                                  color: textColor,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 16,
+                                ),
+                              ),
+                              subtitle: Text(
+                                soundOn ? 'Activado' : 'Desactivado',
+                                style: TextStyle(
+                                  color: textColor.withOpacity(0.6),
+                                  fontSize: 13,
+                                ),
+                              ),
+                              value: soundOn,
+                              activeColor: primaryColor,
+                              onChanged: (value) async {
+                                await SoundService.setSoundEnabled(value);
+                                setState(() {});
+                                _changedForHome = true;
+                              },
+                            ),
+                          ),
+                        );
+                      },
                     ),
                   ],
                 ),

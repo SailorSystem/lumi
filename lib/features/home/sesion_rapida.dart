@@ -11,6 +11,13 @@ import '../../features/metodos/pomodoro/pomodoro_screen.dart';
 import '../../features/metodos/flashcards/flashcards_screen.dart';
 import '../../features/metodos/mentalmaps/mentalmaps.screen.dart';
 
+import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
+import 'package:provider/provider.dart';
+import '../../core/providers/theme_provider.dart';
+
+
 class SesionRapidaScreen extends StatefulWidget {
   const SesionRapidaScreen({super.key});
 
@@ -19,111 +26,109 @@ class SesionRapidaScreen extends StatefulWidget {
 }
 
 class _SesionRapidaScreenState extends State<SesionRapidaScreen> {
-  String _selectedMethod = 'Pomodoro';
+  List<Map<String, dynamic>> metodosDb = [];
 
-  final List<String> _methods = [
-    'Pomodoro',
-    'Flashcards',
-    'Mapa Mental',
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _loadMetodosDb();
+  }
 
-  /// Crear sesión rápida en Supabase
-  Future<Sesion?> _crearSesionRapida() async {
+  Future<void> _loadMetodosDb() async {
     final prefs = await SharedPreferences.getInstance();
-    final idUsuario = prefs.getInt('user_id');
+    final List<String>? stored = prefs.getStringList('metodos');
 
-    if (idUsuario == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("No hay usuario activo.")),
-      );
-      return null;
+    if (stored != null && stored.isNotEmpty) {
+      setState(() {
+        metodosDb = stored.map((s) => json.decode(s) as Map<String, dynamic>).toList();
+      });
+      return;
     }
 
-    int? metodoId;
-    switch (_selectedMethod) {
-      case 'Pomodoro':
-        metodoId = 1;
-        break;
-      case 'Flashcards':
-        metodoId = 2;
-        break;
-      case 'Mapa Mental':
-        metodoId = 3;
-        break;
+    // Métodos por defecto
+    metodosDb = [
+      {
+        'idx': 0,
+        'id_metodo': 1,
+        'nombre': 'Pomodoro',
+        'descripcion': 'Técnica de estudio basada en intervalos de 25 minutos.',
+      },
+      {
+        'idx': 1,
+        'id_metodo': 2,
+        'nombre': 'Flashcards',
+        'descripcion': 'Técnica basada en tarjetas con preguntas y respuestas.',
+      },
+      {
+        'idx': 2,
+        'id_metodo': 3,
+        'nombre': 'Mapa Mental',
+        'descripcion': 'Representación gráfica de ideas',
+      },
+    ];
+
+    await prefs.setStringList('metodos', metodosDb.map((m) => json.encode(m)).toList());
+    setState(() {});
+  }
+
+  IconData _getIconoMetodo(String nombreMetodo) {
+    switch (nombreMetodo.toLowerCase()) {
+      case 'pomodoro':
+        return Icons.timelapse;
+      case 'flashcards':
+        return Icons.style;
+      case 'mapa mental':
+        return Icons.account_tree;
       default:
-        metodoId = null;
-    }
-
-    final Sesion nueva = Sesion(
-      idSesion: null,
-      idUsuario: idUsuario,
-      idMetodo: metodoId,
-      idTema: null,
-      nombreSesion: 'Sesión Rápida ($_selectedMethod)',
-      fecha: DateTime.now(),
-      esRapida: true,
-      duracionTotal: 0,
-      estado: "finalizada",  // 👈 FIX CRUCIAL
-    );
-
-    try {
-      final creada = await SesionService.crearSesion(nueva);
-      return creada;
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Error creando sesión rápida: $e")),
-      );
-      return null;
+        return Icons.school;
     }
   }
 
-  /// Iniciar el método correspondiente
-  Future<void> _startQuickSession() async {
-    final sesion = await _crearSesionRapida();
-    if (sesion == null) return;
-
-    if (!mounted) return;
-
-    if (_selectedMethod == 'Pomodoro') {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const PomodoroScreen()),
-      );
-    } else if (_selectedMethod == 'Flashcards') {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const FlashcardsScreen()),
-      );
-    } else if (_selectedMethod == 'Mapa Mental') {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const MentalMapsScreen()),
-      );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Método "$_selectedMethod" no implementado')),
-      );
+  void _iniciarMetodo(int idMetodo) {
+    Widget screen;
+    switch (idMetodo) {
+      case 1:
+        screen = const PomodoroScreen(idSesion: null);
+        break;
+      case 2:
+        screen = const FlashcardsScreen(idSesion: null);
+        break;
+      case 3:
+        screen = const MentalMapsScreen(idSesion: null);
+        break;
+      default:
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Método no disponible')),
+        );
+        return;
     }
+
+    Navigator.push(context, MaterialPageRoute(builder: (_) => screen));
   }
 
   @override
   Widget build(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context);
-    final bg = themeProvider.backgroundColor;
-    final primary = themeProvider.primaryColor;
+    final isDark = themeProvider.isDarkMode;
+    final primaryColor = themeProvider.primaryColor;
     final cardColor = themeProvider.cardColor;
     final textColor = themeProvider.textColor;
 
     return Scaffold(
-      backgroundColor: bg,
+      backgroundColor: themeProvider.backgroundColor,
       appBar: AppBar(
         elevation: 0,
         centerTitle: true,
+        leading: IconButton(
+          icon: Icon(Icons.arrow_back, color: primaryColor),
+          onPressed: () => Navigator.pop(context),
+        ),
         title: Text(
           'Sesión Rápida',
           style: TextStyle(
-            color: primary,
+            color: primaryColor,
             fontWeight: FontWeight.bold,
+            fontSize: 22,
           ),
         ),
         flexibleSpace: Container(
@@ -131,133 +136,163 @@ class _SesionRapidaScreenState extends State<SesionRapidaScreen> {
             gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
-              colors: themeProvider.isDarkMode
+              colors: isDark
                   ? [
                       const Color(0xFF212C36),
                       const Color(0xFF313940),
-                      bg,
+                      themeProvider.backgroundColor,
                     ]
                   : [
                       const Color(0xFFB6C9D6),
                       const Color(0xFFE6DACA),
-                      bg,
+                      themeProvider.backgroundColor,
                     ],
               stops: const [0.0, 0.75, 1.0],
             ),
           ),
         ),
       ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20.0),
-          child: Column(
-            children: [
-              const SizedBox(height: 20),
-              Text(
-                'Método:',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                  color: textColor,
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: 8),
+            
+            // ✅ Título con ícono
+            Row(
+              children: [
+                Icon(
+                  Icons.flash_on,
+                  color: primaryColor,
+                  size: 28,
                 ),
-              ),
-              const SizedBox(height: 8),
-
-              // SELECTOR
-              Container(
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  color: cardColor,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: themeProvider.isDarkMode
-                        ? Colors.grey[700]!
-                        : Colors.grey.shade300,
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Elige un método de estudio',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: textColor,
+                    ),
                   ),
                 ),
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton(
-                    value: _selectedMethod,
-                    isExpanded: true,
-                    icon: Padding(
-                      padding: const EdgeInsets.only(right: 12.0),
-                      child: Icon(Icons.arrow_drop_down, color: textColor),
-                    ),
-                    items: _methods.map((method) {
-                      return DropdownMenuItem(
-                        value: method,
-                        child: Padding(
-                          padding: const EdgeInsets.all(12.0),
-                          child: Text(
-                            method,
-                            style: TextStyle(fontSize: 16, color: textColor),
+              ],
+            ),
+            
+            const SizedBox(height: 8),
+            
+            Text(
+              'Inicia una sesión sin programar',
+              style: TextStyle(
+                fontSize: 14,
+                color: textColor.withOpacity(0.7),
+              ),
+            ),
+            
+            const SizedBox(height: 24),
+
+            // ✅ Lista de métodos con diseño igual a crear_sesion_screen
+            Expanded(
+              child: metodosDb.isEmpty
+                  ? Center(
+                      child: CircularProgressIndicator(
+                        color: primaryColor,
+                      ),
+                    )
+                  : ListView.separated(
+                      itemCount: metodosDb.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 12),
+                      itemBuilder: (context, index) {
+                        final metodo = metodosDb[index];
+                        final nombre = metodo['nombre'] as String;
+                        final descripcion = metodo['descripcion'] as String? ?? '';
+                        final idMetodo = metodo['id_metodo'] as int;
+                        final icono = _getIconoMetodo(nombre);
+
+                        return InkWell(
+                          borderRadius: BorderRadius.circular(16),
+                          onTap: () => _iniciarMetodo(idMetodo),
+                          child: Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: cardColor,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: primaryColor.withOpacity(0.2),
+                                width: 1.5,
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.05),
+                                  blurRadius: 8,
+                                  offset: const Offset(0, 2),
+                                ),
+                              ],
+                            ),
+                            child: Row(
+                              children: [
+                                // ✅ Ícono del método
+                                Container(
+                                  width: 56,
+                                  height: 56,
+                                  decoration: BoxDecoration(
+                                    color: primaryColor.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Icon(
+                                    icono,
+                                    color: primaryColor,
+                                    size: 28,
+                                  ),
+                                ),
+                                
+                                const SizedBox(width: 16),
+                                
+                                // ✅ Nombre y descripción
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        nombre,
+                                        style: TextStyle(
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.bold,
+                                          color: textColor,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        descripcion,
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          color: textColor.withOpacity(0.7),
+                                        ),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                
+                                const SizedBox(width: 12),
+                                
+                                // ✅ Flecha
+                                Icon(
+                                  Icons.arrow_forward_ios,
+                                  color: primaryColor.withOpacity(0.5),
+                                  size: 18,
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
-                      );
-                    }).toList(),
-                    onChanged: (value) =>
-                        setState(() => _selectedMethod = value!),
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 30),
-
-              Text(
-                '¿Iniciar sesión ahora?',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: textColor,
-                ),
-              ),
-
-              const SizedBox(height: 20),
-
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  // BOTÓN SÍ
-                  SizedBox(
-                    width: 140,
-                    height: 48,
-                    child: ElevatedButton.icon(
-                      onPressed: _startQuickSession,
-                      icon: const Icon(Icons.play_circle_fill,
-                          size: 20, color: Colors.white),
-                      label: const Text('Sí'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: primary,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(28),
-                        ),
-                      ),
+                        );
+                      },
                     ),
-                  ),
-
-                  const SizedBox(width: 20),
-
-                  // BOTÓN NO
-                  SizedBox(
-                    width: 140,
-                    height: 48,
-                    child: OutlinedButton.icon(
-                      onPressed: () => Navigator.pop(context),
-                      icon: Icon(Icons.close, size: 20, color: primary),
-                      label: Text('No', style: TextStyle(color: primary)),
-                      style: OutlinedButton.styleFrom(
-                        side: BorderSide(color: primary),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(28),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
