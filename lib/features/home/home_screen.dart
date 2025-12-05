@@ -404,22 +404,40 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     }
   }
 
+  final _formKeyEdit = GlobalKey<FormState>();
 
   Future<void> _editarSesionModal(Sesion sesion) async {
     final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
-    
+
     final nombreCtrl = TextEditingController(text: sesion.nombreSesion);
     DateTime selectedDate = sesion.fecha;
     TimeOfDay selectedTime = TimeOfDay.fromDateTime(sesion.fecha);
-    
+
+    bool errorHora = false; // ✅ estado local de error en hora
+
     final editado = await showDialog<bool>(
       context: context,
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setState) {
+            // helper local para validar fecha/hora (mínimo 5 min en el futuro)
+            bool fechaHoraValida() {
+              final nuevaFecha = DateTime(
+                selectedDate.year,
+                selectedDate.month,
+                selectedDate.day,
+                selectedTime.hour,
+                selectedTime.minute,
+              );
+              final diff = nuevaFecha.difference(DateTime.now());
+              return diff.inMinutes >= 5;
+            }
+
             return AlertDialog(
               backgroundColor: themeProvider.cardColor,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
               title: Row(
                 children: [
                   Icon(Icons.edit, color: themeProvider.primaryColor),
@@ -434,233 +452,273 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 ],
               ),
               content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // ✅ ADVERTENCIA SI LA FECHA ES PASADA
-                    if (sesion.fecha.isBefore(DateTime.now()))
+                child: Form(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Advertencia si la sesión original ya pasó
+                      if (sesion.fecha.isBefore(DateTime.now()))
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          margin: const EdgeInsets.only(bottom: 16),
+                          decoration: BoxDecoration(
+                            color: Colors.orange.withOpacity(0.1),
+                            border: Border.all(
+                              color: Colors.orange,
+                              width: 1.5,
+                            ),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.warning,
+                                  color: Colors.orange, size: 20),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Esta sesión ya pasó. Actualiza la fecha.',
+                                  style: TextStyle(
+                                    color: Colors.orange.shade800,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+
+                      // Campo nombre con validator
+                      TextFormField(
+                        controller: nombreCtrl,
+                        style: TextStyle(color: themeProvider.textColor),
+                        maxLength: 50,
+                        decoration: InputDecoration(
+                          labelText: 'Nombre de la sesión *',
+                          labelStyle:
+                              TextStyle(color: themeProvider.primaryColor),
+                          hintText: 'Ej: Estudiar Matemáticas',
+                          hintStyle: TextStyle(
+                            color: themeProvider.textColor.withOpacity(0.5),
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(
+                              color:
+                                  themeProvider.primaryColor.withOpacity(0.3),
+                            ),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(
+                              color: themeProvider.primaryColor,
+                              width: 2,
+                            ),
+                          ),
+                        ),
+                        validator: (value) {
+                          final text = value?.trim() ?? '';
+                          if (text.isEmpty) {
+                            return 'El nombre no puede estar vacío';
+                          }
+                          if (text.length > 50) {
+                            return 'Máximo 50 caracteres';
+                          }
+                          return null;
+                        },
+                      ),
+
+                      const SizedBox(height: 16),
+
+                      // Selector de fecha (sin error visual porque no se permiten fechas pasadas)
                       Container(
-                        padding: const EdgeInsets.all(12),
-                        margin: const EdgeInsets.only(bottom: 16),
                         decoration: BoxDecoration(
-                          color: Colors.orange.withOpacity(0.1),
-                          border: Border.all(color: Colors.orange, width: 1.5),
-                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color:
+                                themeProvider.primaryColor.withOpacity(0.3),
+                          ),
+                          borderRadius: BorderRadius.circular(12),
                         ),
-                        child: Row(
-                          children: [
-                            const Icon(Icons.warning, color: Colors.orange, size: 20),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                'Esta sesión ya pasó. Actualiza la fecha.',
+                        child: ListTile(
+                          leading: Icon(Icons.calendar_today,
+                              color: themeProvider.primaryColor),
+                          title: Text(
+                            'Fecha *',
+                            style: TextStyle(
+                              color: themeProvider.primaryColor,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          subtitle: Text(
+                            '${selectedDate.day}/${selectedDate.month}/${selectedDate.year}',
+                            style: TextStyle(
+                              color: themeProvider.textColor,
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          trailing: Icon(Icons.edit,
+                              color: themeProvider.primaryColor, size: 20),
+                          onTap: () async {
+                            final picked = await showDatePicker(
+                              context: context,
+                              initialDate: selectedDate.isAfter(DateTime.now())
+                                  ? selectedDate
+                                  : DateTime.now(),
+                              firstDate: DateTime.now(),
+                              lastDate: DateTime.now()
+                                  .add(const Duration(days: 365)),
+                              builder: (context, child) {
+                                return Theme(
+                                  data: Theme.of(context).copyWith(
+                                    colorScheme: ColorScheme.light(
+                                      primary: themeProvider.primaryColor,
+                                    ),
+                                  ),
+                                  child: child!,
+                                );
+                              },
+                            );
+                            if (picked != null) {
+                              setState(() {
+                                selectedDate = picked;
+                                // recalcular error de hora completo
+                                errorHora = !fechaHoraValida();
+                              });
+                            }
+                          },
+                        ),
+                      ),
+
+                      const SizedBox(height: 12),
+
+                      // Selector de hora con error visual
+                      Container(
+                        decoration: BoxDecoration(
+                          border: Border.all(
+                            color: errorHora
+                                ? Colors.redAccent
+                                : themeProvider.primaryColor
+                                    .withOpacity(0.3),
+                            width: errorHora ? 2 : 1,
+                          ),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: ListTile(
+                          leading: Icon(
+                            Icons.access_time,
+                            color: errorHora
+                                ? Colors.redAccent
+                                : themeProvider.primaryColor,
+                          ),
+                          title: Text(
+                            'Hora *',
+                            style: TextStyle(
+                              color: errorHora
+                                  ? Colors.redAccent
+                                  : themeProvider.primaryColor,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '${selectedTime.hour.toString().padLeft(2, '0')}:${selectedTime.minute.toString().padLeft(2, '0')}',
                                 style: TextStyle(
-                                  color: Colors.orange.shade800,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
+                                  color: themeProvider.textColor,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
                                 ),
                               ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    
-                    // Campo nombre
-                    TextField(
-                      controller: nombreCtrl,
-                      style: TextStyle(color: themeProvider.textColor),
-                      maxLength: 50,
-                      decoration: InputDecoration(
-                        labelText: 'Nombre de la sesión *',
-                        labelStyle: TextStyle(color: themeProvider.primaryColor),
-                        hintText: 'Ej: Estudiar Matemáticas',
-                        hintStyle: TextStyle(color: themeProvider.textColor.withOpacity(0.5)),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide(color: themeProvider.primaryColor.withOpacity(0.3)),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide(color: themeProvider.primaryColor, width: 2),
-                        ),
-                      ),
-                    ),
-                    
-                    const SizedBox(height: 16),
-                    
-                    // Selector de fecha
-                    Container(
-                      decoration: BoxDecoration(
-                        border: Border.all(color: themeProvider.primaryColor.withOpacity(0.3)),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: ListTile(
-                        leading: Icon(Icons.calendar_today, color: themeProvider.primaryColor),
-                        title: Text(
-                          'Fecha *',
-                          style: TextStyle(
-                            color: themeProvider.primaryColor,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        subtitle: Text(
-                          '${selectedDate.day}/${selectedDate.month}/${selectedDate.year}',
-                          style: TextStyle(
-                            color: themeProvider.textColor,
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        trailing: Icon(Icons.edit, color: themeProvider.primaryColor, size: 20),
-                        onTap: () async {
-                          final picked = await showDatePicker(
-                            context: context,
-                            initialDate: selectedDate.isAfter(DateTime.now()) 
-                                ? selectedDate 
-                                : DateTime.now(),
-                            firstDate: DateTime.now(),
-                            lastDate: DateTime.now().add(const Duration(days: 365)),
-                            builder: (context, child) {
-                              return Theme(
-                                data: Theme.of(context).copyWith(
-                                  colorScheme: ColorScheme.light(
-                                    primary: themeProvider.primaryColor,
+                              if (errorHora)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 4),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.redAccent.withOpacity(0.08),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Text(
+                                      'Debes elegir una hora al menos 5 min en el futuro',
+                                      style: TextStyle(
+                                        color: Colors.redAccent.withOpacity(0.9),
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
                                   ),
                                 ),
-                                child: child!,
-                              );
-                            },
-                          );
-                          if (picked != null) {
-                            setState(() {
-                              selectedDate = picked;
-                            });
-                          }
-                        },
-                      ),
-                    ),
-                    
-                    const SizedBox(height: 12),
-                    
-                    // Selector de hora
-                    Container(
-                      decoration: BoxDecoration(
-                        border: Border.all(color: themeProvider.primaryColor.withOpacity(0.3)),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: ListTile(
-                        leading: Icon(Icons.access_time, color: themeProvider.primaryColor),
-                        title: Text(
-                          'Hora *',
-                          style: TextStyle(
-                            color: themeProvider.primaryColor,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
+                            ],
                           ),
-                        ),
-                        subtitle: Text(
-                          '${selectedTime.hour.toString().padLeft(2, '0')}:${selectedTime.minute.toString().padLeft(2, '0')}',
-                          style: TextStyle(
-                            color: themeProvider.textColor,
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        trailing: Icon(Icons.edit, color: themeProvider.primaryColor, size: 20),
-                        onTap: () async {
-                          final picked = await showTimePicker(
-                            context: context,
-                            initialTime: selectedTime,
-                            builder: (context, child) {
-                              return Theme(
-                                data: Theme.of(context).copyWith(
-                                  colorScheme: ColorScheme.light(
-                                    primary: themeProvider.primaryColor,
+                          trailing: Icon(Icons.edit,
+                              color: themeProvider.primaryColor, size: 20),
+                          onTap: () async {
+                            final picked = await showTimePicker(
+                              context: context,
+                              initialTime: selectedTime,
+                              builder: (context, child) {
+                                return Theme(
+                                  data: Theme.of(context).copyWith(
+                                    colorScheme: ColorScheme.light(
+                                      primary: themeProvider.primaryColor,
+                                    ),
                                   ),
-                                ),
-                                child: child!,
-                              );
-                            },
-                          );
-                          if (picked != null) {
-                            setState(() {
-                              selectedTime = picked;
-                            });
-                          }
-                        },
-                      ),
-                    ),
-                    
-                    const SizedBox(height: 16),
-                    
-                    // Nota informativa
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: themeProvider.primaryColor.withOpacity(0.05),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: themeProvider.primaryColor.withOpacity(0.2),
+                                  child: child!,
+                                );
+                              },
+                            );
+                            if (picked != null) {
+                              setState(() {
+                                selectedTime = picked;
+                                errorHora = !fechaHoraValida();
+                              });
+                            }
+                          },
                         ),
                       ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.info_outline,
-                            color: themeProvider.primaryColor,
-                            size: 18,
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'La sesión debe ser al menos 5 minutos en el futuro',
-                              style: TextStyle(
-                                color: themeProvider.primaryColor,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
+
+                      const SizedBox(height: 16),
+
+                    ],
+                  ),
                 ),
               ),
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(context, false),
-                  child: Text('Cancelar', style: TextStyle(color: themeProvider.primaryColor)),
+                  child: Text(
+                    'Cancelar',
+                    style: TextStyle(color: themeProvider.primaryColor),
+                  ),
                 ),
                 ElevatedButton(
                   onPressed: () async {
-                    // ✅ VALIDACIÓN 1: Nombre no vacío
-                    if (nombreCtrl.text.trim().isEmpty) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('⚠️ El nombre no puede estar vacío'),
-                          backgroundColor: Colors.orange,
-                        ),
-                      );
+                    // Validar nombre (pinta error en el TextFormField)
+                    final form = Form.of(context);
+                    final okNombre = form?.validate() ?? true;
+
+                    // Validar fecha/hora
+                    final esValida = fechaHoraValida();
+
+                    if (!okNombre || !esValida) {
+                      setState(() {
+                        errorHora = !esValida;
+                      });
                       return;
                     }
-                    
-                    // ✅ VALIDACIÓN 2: Nombre no muy largo
-                    if (nombreCtrl.text.trim().length > 50) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('⚠️ El nombre es muy largo (máximo 50 caracteres)'),
-                          backgroundColor: Colors.orange,
-                        ),
-                      );
-                      return;
-                    }
-                    
-                    // ✅ VALIDACIÓN 3: Construir fecha completa
+
+                    // Si todo está bien → guardar cambios
                     final nuevaFecha = DateTime(
                       selectedDate.year,
                       selectedDate.month,
@@ -668,33 +726,15 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       selectedTime.hour,
                       selectedTime.minute,
                     );
-                    
-                    final ahora = DateTime.now();
-                    final diferencia = nuevaFecha.difference(ahora);
-                    
-                    // ✅ VALIDACIÓN 4: Fecha debe ser futura (mínimo 5 minutos)
-                    if (diferencia.inMinutes < 5) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            diferencia.isNegative 
-                              ? '⚠️ La fecha seleccionada ya pasó'
-                              : '⚠️ La sesión debe ser al menos 5 minutos en el futuro',
-                          ),
-                          backgroundColor: Colors.orange,
-                          duration: const Duration(seconds: 3),
-                        ),
-                      );
-                      return;
-                    }
-                    
+
                     try {
                       print('✏️ Actualizando sesión ${sesion.idSesion}...');
-                      
+
                       // 1. Cancelar notificaciones antiguas
-                      await NotificationService.cancelarNotificacionesSesion(sesion.idSesion!);
+                      await NotificationService.cancelarNotificacionesSesion(
+                          sesion.idSesion!);
                       print('✅ Notificaciones antiguas canceladas');
-                      
+
                       // 2. Actualizar sesión
                       await SesionService.actualizarSesion(
                         sesion.idSesion!,
@@ -704,37 +744,38 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                         },
                       );
                       print('✅ Sesión actualizada en BD');
-                      
-                      // 3. Re-programar notificaciones con nueva fecha
+
+                      // 3. Re-programar notificaciones
                       await NotificationService.programarRecordatorio(
                         idSesion: sesion.idSesion!,
                         nombreSesion: nombreCtrl.text.trim(),
                         fechaSesion: nuevaFecha,
                       );
-                      
                       await NotificationService.programarNotificacionInicio(
                         idSesion: sesion.idSesion!,
                         nombreSesion: nombreCtrl.text.trim(),
                         fechaSesion: nuevaFecha,
                       );
                       print('✅ Notificaciones re-programadas');
-                      
+
                       Navigator.pop(context, true);
-                      
                     } catch (e) {
                       print('❌ Error: $e');
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('❌ Error al actualizar: $e'),
-                          backgroundColor: Colors.red,
-                        ),
-                      );
+                      if (mounted) {
+                        ScaffoldMessenger.of(this.context).showSnackBar(
+                          SnackBar(
+                            content: Text('❌ Error al actualizar: $e'),
+                            backgroundColor: Colors.red,
+                          ),
+                        );
+                      }
                     }
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.blue,
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                   ),
                   child: const Text('💾 Guardar Cambios'),
                 ),
@@ -744,7 +785,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         );
       },
     );
-    
+
     if (editado == true) {
       await _loadCompletedSessions();
       if (mounted) {

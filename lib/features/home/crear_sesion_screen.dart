@@ -22,16 +22,52 @@ class CrearNuevaSesionScreen extends StatefulWidget {
 class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
   final _formKey = GlobalKey<FormState>();
   final titleController = TextEditingController();
-  
+  bool _canSave = false;
+  String? _mensajeAyuda;
   int _selectedMetodoId = 1; // ✅ Variable para el ID del método
-  
+  List<String> _erroresVisibles = [];
   List<Map<String, dynamic>> _metodosDb = [];
   Map<String, dynamic>? materiaSel;
   DateTime selectedDate = DateTime.now();
   TimeOfDay selectedTime = TimeOfDay.now();
   Duration selectedDuration = const Duration(hours: 1);
   List<Map<String, dynamic>> _materias = [];
-  
+  Duration get _minOffset => const Duration(minutes: 5);
+  String? _ayudaTiempo;
+  bool _errorFechaHora = false;
+  bool _errorDuracion = false;
+
+  bool _fechaHoraEsValida() {
+    final fechaSeleccionada = DateTime(
+      selectedDate.year,
+      selectedDate.month,
+      selectedDate.day,
+      selectedTime.hour,
+      selectedTime.minute,
+    );
+    final diff = fechaSeleccionada.difference(DateTime.now());
+    return diff >= _minOffset;
+  }
+
+  int _minutosMinimosPorMetodo() {
+    switch (_selectedMetodoId) {
+      case 1: // Pomodoro
+        return 25;
+      case 2: // Flashcards
+        return 5;
+      case 3: // Mapa mental
+        return 5;
+      default:
+        return 3;
+    }
+  }
+
+  bool _duracionValidaParaMetodo() {
+    final minutos = selectedDuration.inMinutes;
+    return minutos >= _minutosMinimosPorMetodo();
+  }
+
+
   static const List<List<Color>> _paletteOrganizada = [
     [Color(0xFFE53935), Color(0xFFD81B60), Color(0xFFEC407A), Color(0xFFAD1457)],
     [Color(0xFFFF6F00), Color(0xFFFF9800), Color(0xFFFFA726), Color(0xFFFBC02D)],
@@ -60,6 +96,35 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
     _loadMaterias();
     _limpiarMetodosViejos();
     loadMetodosDb();
+    titleController.addListener(_recalcularCanSave);
+
+  }
+
+  void _validarYMostrarErrores() {
+    final errores = <String>[];
+
+    final titulo = titleController.text.trim();
+    if (titulo.isEmpty) {
+      errores.add('El título no puede estar vacío.');
+    } else if (titulo.length > 50) {
+      errores.add('El título no debe superar los 50 caracteres.');
+    }
+
+    if (materiaSel == null) {
+      errores.add('Selecciona una materia.');
+    }
+
+    if (!_fechaHoraEsValida()) {
+      errores.add('La fecha y hora deben ser al menos ${_minOffset.inMinutes} minutos en el futuro.');
+    }
+
+    if (!_duracionValidaParaMetodo()) {
+      errores.add('La duración es demasiado corta para el método seleccionado.');
+    }
+
+    setState(() {
+      _erroresVisibles = errores;
+    });
   }
 
   Future<void> _limpiarMetodosViejos() async {
@@ -107,9 +172,35 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
 
   @override
   void dispose() {
+    titleController.removeListener(_recalcularCanSave);
     titleController.dispose();
     super.dispose();
   }
+
+  void _recalcularCanSave() {
+    final titulo = titleController.text.trim();
+
+    bool ok = true;
+
+    // título y materia: sus mensajes los maneja el validator
+    if (titulo.isEmpty || titulo.length > 50) ok = false;
+    if (materiaSel == null) ok = false;
+
+    // fecha / hora
+    final fechaValida = _fechaHoraEsValida();
+    if (!fechaValida) ok = false;
+
+    // duración según método
+    final duracionValida = _duracionValidaParaMetodo();
+    if (!duracionValida) ok = false;
+
+    setState(() {
+      _canSave = ok;
+      _errorFechaHora = !fechaValida;
+      _errorDuracion = !duracionValida;
+    });
+  }
+
 
   Future<void> _loadMaterias() async {
     final prefs = await SharedPreferences.getInstance();
@@ -141,62 +232,39 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
 
   Future<void> saveSession() async {
     print('🔵 saveSession() iniciado');
-    
-    // ✅ VALIDACIÓN 1: Formulario básico
+
+    // 1) Validar el formulario VISUALMENTE
     if (!_formKey.currentState!.validate()) {
-      print('❌ Validación de formulario falló');
+      print('❌ Formulario inválido');
       return;
     }
 
-    // ✅ VALIDACIÓN 2: Título no vacío
-    if (titleController.text.trim().isEmpty) {
+    // 2) Validar reglas extra (fecha / duración)
+    if (!_fechaHoraEsValida() || !_duracionValidaParaMetodo()) {
+      // aquí puedes poner SOLO UN SnackBar si quieres algo general
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('⚠️ Debes ingresar un título para la sesión'),
+          content: Text('Revisa fecha y duración antes de crear la sesión.'),
           backgroundColor: Colors.orange,
         ),
       );
       return;
     }
 
-    // ✅ VALIDACIÓN 3: Título no muy largo
-    if (titleController.text.trim().length > 50) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('⚠️ El título es muy largo (máximo 50 caracteres)'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      return;
-    }
-
-    // ✅ VALIDACIÓN 4: Materia seleccionada
-    if (materiaSel == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('⚠️ Debes seleccionar una materia'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      return;
-    }
-
+    // 3) Usuario
     final prefs = await SharedPreferences.getInstance();
     final userId = prefs.getInt('user_id');
-    print('👤 UserID obtenido de SharedPreferences: $userId');
-    
     if (userId == null) {
-      print('❌ No hay user_id en SharedPreferences');
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No hay usuario activo. Regístrate primero.')),
+        const SnackBar(
+          content: Text('No hay usuario activo. Regístrate primero.'),
+          backgroundColor: Colors.red,
+        ),
       );
       return;
     }
 
     final metodoId = _selectedMetodoId;
-    print('✅ Método ID seleccionado: $metodoId');
-
-    // ✅ VALIDACIÓN 5: Construir fecha completa
     final selectedDateTime = DateTime(
       selectedDate.year,
       selectedDate.month,
@@ -205,54 +273,11 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
       selectedTime.minute,
     );
 
-    final ahora = DateTime.now();
-    final diferencia = selectedDateTime.difference(ahora);
-
-    // ✅ VALIDACIÓN 6: Fecha debe ser futura (mínimo 5 minutos)
-    if (diferencia.inMinutes < 5) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            diferencia.isNegative
-                ? '⚠️ La fecha seleccionada ya pasó. Ajústala al futuro.'
-                : '⚠️ La sesión debe ser al menos 5 minutos en el futuro',
-          ),
-          backgroundColor: Colors.orange,
-          duration: const Duration(seconds: 4),
-          action: SnackBarAction(
-            label: 'Ajustar',
-            textColor: Colors.white,
-            onPressed: () {
-              setState(() {
-                final sugerida = DateTime.now().add(const Duration(minutes: 10));
-                selectedDate = sugerida;
-                selectedTime = TimeOfDay.fromDateTime(sugerida);
-              });
-            },
-          ),
-        ),
-      );
-      return;
-    }
-
-    // ✅ VALIDACIÓN 7: Duración mínima
-    if (selectedDuration.inSeconds < 300) { // Mínimo 5 minutos
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('⚠️ La duración debe ser al menos 5 minutos'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      return;
-    }
-
-    // ✅ TODAS LAS VALIDACIONES PASARON
     int? temaId;
     if (materiaSel != null) {
       temaId = materiaSel!['id_tema'] as int?;
     }
 
-    final duracionSegundos = selectedDuration.inSeconds;
     final nueva = Sesion(
       idSesion: null,
       idUsuario: userId,
@@ -261,37 +286,24 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
       nombreSesion: titleController.text.trim(),
       fecha: selectedDateTime,
       esRapida: false,
-      duracionTotal: duracionSegundos,
+      duracionTotal: selectedDuration.inSeconds,
       estado: 'programada',
     );
 
-    print('📤 Enviando sesión a Supabase:');
-    print('   - Usuario ID: ${nueva.idUsuario}');
-    print('   - Método ID: ${nueva.idMetodo}');
-    print('   - Tema ID: ${nueva.idTema}');
-    print('   - Nombre: ${nueva.nombreSesion}');
-    print('   - Fecha: ${nueva.fecha}');
-    print('   - Duración: ${nueva.duracionTotal} segundos');
-
     try {
       final creada = await SesionService.crearSesion(nueva);
-      print('✅ Sesión creada exitosamente con ID: ${creada?.idSesion}');
 
-      // Programar notificaciones
       if (creada != null && creada.idSesion != null) {
         await NotificationService.programarRecordatorio(
           idSesion: creada.idSesion!,
           nombreSesion: creada.nombreSesion,
           fechaSesion: creada.fecha,
         );
-        
         await NotificationService.programarNotificacionInicio(
           idSesion: creada.idSesion!,
           nombreSesion: creada.nombreSesion,
           fechaSesion: creada.fecha,
         );
-        
-        print('🔔 Notificaciones programadas');
       }
 
       if (mounted) {
@@ -323,11 +335,16 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
     required String label,
     String? value,
     VoidCallback? onTap,
+    bool error = false,
   }) {
     final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
     final cardColor = themeProvider.cardColor;
     final textColor = themeProvider.textColor;
     final primary = themeProvider.primaryColor;
+
+    final borderColor = error
+        ? Colors.redAccent
+        : (themeProvider.isDarkMode ? Colors.grey[700]! : Colors.black26);
 
     return InkWell(
       borderRadius: BorderRadius.circular(16),
@@ -337,21 +354,60 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
         decoration: BoxDecoration(
           color: cardColor,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: themeProvider.isDarkMode ? Colors.grey[700]! : Colors.black26,
-          ),
-          boxShadow: const [BoxShadow(blurRadius: 4, offset: Offset(0, 2), color: Colors.black12)],
+          border: Border.all(color: borderColor, width: error ? 2 : 1),
+          boxShadow: const [
+            BoxShadow(blurRadius: 4, offset: Offset(0, 2), color: Colors.black12),
+          ],
         ),
         child: Row(
           children: [
-            Icon(icon, color: primary),
+            Icon(
+              icon,
+              color: error ? Colors.redAccent : primary,
+            ),
             const SizedBox(width: 10),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(label, style: TextStyle(fontSize: 12, color: textColor.withOpacity(0.7))),
-                  Text(value ?? 'Seleccionar', style: TextStyle(fontSize: 16, color: textColor)),
+                  // etiqueta principal
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: error
+                          ? Colors.redAccent
+                          : textColor.withOpacity(0.7),
+                      fontWeight:
+                          error ? FontWeight.w600 : FontWeight.normal,
+                    ),
+                  ),
+                  // valor
+                  Text(
+                    value ?? 'Seleccionar',
+                    style: TextStyle(fontSize: 16, color: textColor),
+                  ),
+                  // 👇 ETIQUETA SEMITRANSPARENTE solo cuando hay error
+                  if (error)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.redAccent.withOpacity(0.08),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          'Ajusta fecha y hora al futuro',
+                          style: TextStyle(
+                            color: Colors.redAccent.withOpacity(0.9),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -361,6 +417,7 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
       ),
     );
   }
+
 
   Widget _materiaButton() {
     final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
@@ -402,7 +459,10 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
             );
           },
         );
-        if (picked != null) setState(() => materiaSel = picked);
+        if (picked != null) {
+          setState(() => materiaSel = picked);
+          _recalcularCanSave();              
+        }
       },
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
@@ -735,6 +795,7 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
                         setState(() {
                           selectedDuration = Duration(hours: h, minutes: m);
                         });
+                        _recalcularCanSave();
                         Navigator.pop(context);
                       },
                       style: ElevatedButton.styleFrom(
@@ -780,6 +841,7 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
     final primary = themeProvider.primaryColor;
     final cardColor = themeProvider.cardColor;
     final textColor = themeProvider.textColor;
+    final minReq = _minutosMinimosPorMetodo();
 
     return Scaffold(
       backgroundColor: bg,
@@ -842,7 +904,16 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
                 ),
                 labelStyle: const TextStyle(color: Color(0xFF7C6F66)),
               ),
-              validator: (v) => (v == null || v.isEmpty) ? 'Por favor ingresa un título' : null,
+              validator: (value) {
+                final text = value?.trim() ?? '';
+                if (text.isEmpty) return 'El título no puede estar vacío';
+                if (text.length > 50) return 'Máximo 50 caracteres';
+                return null;
+              },
+                onChanged: (_) {
+                _formKey.currentState!.validate(); // pinta o borra el error
+                _recalcularCanSave();              // recalcula el botón
+              },
             ),
             const SizedBox(height: 16),
             Row(
@@ -1045,54 +1116,87 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
               children: [
                 Expanded(
                   child: _lumiPickerButton(
-                    icon: Icons.calendar_today,
-                    label: 'Fecha',
-                    value: '${_two(selectedDate.day)}/${_two(selectedDate.month)}/${selectedDate.year}',
-                    onTap: () async {
-                      final d = await showDatePicker(
-                        context: context,
-                        initialDate: selectedDate,
-                        firstDate: DateTime.now().add(const Duration(days: -30)),
-                        lastDate: DateTime.now().add(const Duration(days: 365)),
-                      );
-                      if (d != null) setState(() => selectedDate = d);
-                    },
+                  icon: Icons.calendar_today,
+                  label: 'Fecha',
+                  value: '${_two(selectedDate.day)}/${_two(selectedDate.month)}/${selectedDate.year}',
+                  onTap: () async {
+                    final d = await showDatePicker(
+                      context: context,
+                      initialDate: selectedDate,
+                      firstDate: DateTime.now(),
+                      lastDate: DateTime.now().add(const Duration(days: 365)),
+                    );
+                    if (d != null) {
+                      setState(() => selectedDate = d);
+                      _recalcularCanSave();
+                    }
+                  },
                   ),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: _lumiPickerButton(
-                    icon: Icons.access_time,
-                    label: 'Hora',
-                    value: '${_two(selectedTime.hour)}:${_two(selectedTime.minute)}',
-                    onTap: () async {
-                      final t = await showTimePicker(context: context, initialTime: selectedTime);
-                      if (t != null) setState(() => selectedTime = t);
-                    },
+                  icon: Icons.access_time,
+                  label: 'Hora',
+                  value: '${_two(selectedTime.hour)}:${_two(selectedTime.minute)}',
+                  onTap: () async {
+                    final t = await showTimePicker(
+                      context: context,
+                      initialTime: selectedTime,
+                    );
+                    if (t != null) {
+                      setState(() => selectedTime = t);
+                      _recalcularCanSave();
+                    }
+                  },
+                  error: _errorFechaHora,     
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 16),
+            
+
             _lumiPickerButton(
               icon: Icons.timer,
-              label: 'Duración',
+              label: _errorDuracion
+                  ? 'Duración (mínimo ${minReq} min)'
+                  : 'Duración (mínimo ${minReq} min)',
               value: '${_two(selectedDuration.inHours)}:${_two(selectedDuration.inMinutes % 60)}',
               onTap: openDurationSheet,
+              error: _errorDuracion,
             ),
             const SizedBox(height: 24),
             SizedBox(
               height: 56,
               child: ElevatedButton(
-                onPressed: saveSession,
+                onPressed: () {
+                  // 1) Siempre validamos visualmente
+                  final okForm = _formKey.currentState!.validate();
+
+                  // 2) Recalcular reglas extra (materia, fecha, duración)
+                  _recalcularCanSave();
+
+                  // 3) Si TODO está bien, recién llamamos a saveSession
+                  if (_canSave && okForm) {
+                    saveSession();
+                  }
+                  // Si _canSave es false, NO hacemos nada más:
+                  // - El title ya tendrá borde rojo y mensaje (por validator)
+                  // - La materia ya muestra su error (FormField validator)
+                  // - La fecha/duración muestran _mensajeAyuda abajo
+                },
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: primary,
+                  backgroundColor: _canSave ? primary : primary.withOpacity(0.4),
                   foregroundColor: Colors.white,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
                   padding: const EdgeInsets.symmetric(vertical: 16),
-                  elevation: 2,
+                  elevation: _canSave ? 2 : 0,
                 ),
-                child: const Text('Crear Sesión', style: TextStyle(fontWeight: FontWeight.w700)),
+                child: const Text(
+                  'Crear Sesión',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
               ),
             ),
           ],
