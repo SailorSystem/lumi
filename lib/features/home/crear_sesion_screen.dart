@@ -11,6 +11,8 @@ import '../../core/services/tema_service.dart';
 import '../../core/services/sesion_service.dart';
 import '../../core/providers/theme_provider.dart';
 import '../../core/services/notification_service.dart';
+import '../../core/services/connectivity_service.dart';
+import '../../widgets/no_connection_dialog.dart';
 
 class CrearNuevaSesionScreen extends StatefulWidget {
   const CrearNuevaSesionScreen({super.key});
@@ -232,7 +234,12 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
 
   Future<void> saveSession() async {
     print('🔵 saveSession() iniciado');
-
+    final conectado = await ConnectivityService.verificarConexion();
+    if (!conectado) {
+      await showNoConnectionDialog(context,
+        message: 'No se pudo crear la sesión. Revisa tu conexión e inténtalo de nuevo.');
+      return;
+    }
     // 1) Validar el formulario VISUALMENTE
     if (!_formKey.currentState!.validate()) {
       print('❌ Formulario inválido');
@@ -388,26 +395,7 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
                     style: TextStyle(fontSize: 16, color: textColor),
                   ),
                   // 👇 ETIQUETA SEMITRANSPARENTE solo cuando hay error
-                  if (error)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 4),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.redAccent.withOpacity(0.08),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(
-                          'Ajusta fecha y hora al futuro',
-                          style: TextStyle(
-                            color: Colors.redAccent.withOpacity(0.9),
-                            fontSize: 11,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ),
-                    ),
+
                 ],
               ),
             ),
@@ -1134,38 +1122,62 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
                   ),
                 ),
                 const SizedBox(width: 8),
+                // HORA (con borde rojo y mensaje cuando _errorFechaHora == true)
                 Expanded(
-                  child: _lumiPickerButton(
-                  icon: Icons.access_time,
-                  label: 'Hora',
-                  value: '${_two(selectedTime.hour)}:${_two(selectedTime.minute)}',
-                  onTap: () async {
-                    final t = await showTimePicker(
-                      context: context,
-                      initialTime: selectedTime,
-                    );
-                    if (t != null) {
-                      setState(() => selectedTime = t);
-                      _recalcularCanSave();
-                    }
-                  },
-                  error: _errorFechaHora,     
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _lumiPickerButton(
+                        icon: Icons.access_time,
+                        label: 'Hora',
+                        value: '${_two(selectedTime.hour)}:${_two(selectedTime.minute)}',
+                        onTap: () async {
+                          final t = await showTimePicker(
+                            context: context,
+                            initialTime: selectedTime,
+                          );
+                          if (t != null) {
+                            setState(() => selectedTime = t);
+                            _recalcularCanSave();
+                          }
+                        },
+                        error: _errorFechaHora,
+                      ),
+                      if (_errorFechaHora) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          'La hora debe ser al menos ${_minOffset.inMinutes} min en el futuro',
+                          style: const TextStyle(
+                            color: Colors.redAccent,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 16),
-            
-
             _lumiPickerButton(
               icon: Icons.timer,
-              label: _errorDuracion
-                  ? 'Duración (mínimo ${minReq} min)'
-                  : 'Duración (mínimo ${minReq} min)',
+              label: 'Duración (mínimo ${minReq} min)',
               value: '${_two(selectedDuration.inHours)}:${_two(selectedDuration.inMinutes % 60)}',
               onTap: openDurationSheet,
               error: _errorDuracion,
             ),
+            if (_errorDuracion) ...[
+              const SizedBox(height: 4),
+              Text(
+                'La duración no puede ser menor a ${minReq} min',
+                style: const TextStyle(
+                  color: Colors.redAccent,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
             const SizedBox(height: 24),
             SizedBox(
               height: 56,
@@ -1181,10 +1193,7 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
                   if (_canSave && okForm) {
                     saveSession();
                   }
-                  // Si _canSave es false, NO hacemos nada más:
-                  // - El title ya tendrá borde rojo y mensaje (por validator)
-                  // - La materia ya muestra su error (FormField validator)
-                  // - La fecha/duración muestran _mensajeAyuda abajo
+
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: _canSave ? primary : primary.withOpacity(0.4),

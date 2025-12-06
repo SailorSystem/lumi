@@ -5,8 +5,9 @@ import '../../../core/providers/theme_provider.dart';
 import '../../../core/services/sesion_service.dart'; 
 import '../../../core/services/mood_service.dart';
 import '../../../core/models/sesion.dart';
-import '../../../core/services/stat_service.dart'; // ✅ AGREGADO
+import '../../../core/services/stat_service.dart'; 
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../../core/services/audio_player_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/services/supabase_service.dart';
 import 'dart:async';
@@ -126,6 +127,7 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
           duracionEstipulada != null && 
           tiempoTranscurrido >= duracionEstipulada!) {
         tiempoEstipuladoCumplido = true;
+        AudioPlayerService.play('assets/sounds/alert_finish.mp3');
         _mostrarDialogoTiempoCumplido();
       }
     });

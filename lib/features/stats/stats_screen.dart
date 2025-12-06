@@ -10,6 +10,7 @@ import '../../core/models/sesion.dart';
 import '../../core/models/usuario.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/services/connectivity_service.dart';
+import '../../widgets/no_connection_dialog.dart';
 
 class StatsScreen extends StatefulWidget {
   const StatsScreen({Key? key}) : super(key: key);
@@ -62,7 +63,7 @@ class StatsScreenState extends State<StatsScreen> {
 
   Future<void> loadStats() async {
     print('🔄 Iniciando carga de estadísticas...');
-    
+
     setState(() {
       loading = true;
     });
@@ -70,7 +71,7 @@ class StatsScreenState extends State<StatsScreen> {
     try {
       final prefs = await SharedPreferences.getInstance();
       userId = prefs.getInt('user_id');
-      
+
       print('👤 UserID desde SharedPreferences: $userId');
 
       if (userId == null) {
@@ -95,6 +96,24 @@ class StatsScreenState extends State<StatsScreen> {
         return;
       }
 
+      // 🔌 comprobar conexión antes de ir a Supabase
+      final conectado = await ConnectivityService.verificarConexion();
+      if (!conectado) {
+        if (mounted) {
+          await showNoConnectionDialog(
+            context,
+            message:
+                'No se pudieron cargar las estadísticas. Revisa tu conexión.',
+          );
+        }
+        setState(() {
+          loading = false;
+          todasSesiones = [];
+          sesionesFiltradas = [];
+        });
+        return;
+      }
+
       // Limpiar datos antiguos
       todasSesiones = [];
       totalSesiones = 0;
@@ -106,7 +125,7 @@ class StatsScreenState extends State<StatsScreen> {
       // ✅ CARGAR TEMAS CON RETRY
       try {
         print('🎨 Cargando temas del usuario...');
-        
+
         final temasResponse = await ConnectivityService.ejecutarConReintento(
           operacion: () => Supabase.instance.client
               .from('temas')
@@ -114,10 +133,10 @@ class StatsScreenState extends State<StatsScreen> {
               .eq('id_usuario', userId!),
           intentosMaximos: 3,
         );
-        
+
         final idsVistos = <int>{};
         final temasUnicos = <Map<String, dynamic>>[];
-        
+
         for (var tema in temasResponse) {
           final idTema = tema['id_tema'] as int;
           if (!idsVistos.contains(idTema)) {
@@ -125,7 +144,7 @@ class StatsScreenState extends State<StatsScreen> {
             temasUnicos.add(Map<String, dynamic>.from(tema));
           }
         }
-        
+
         todosTemas = temasUnicos;
         print('✅ Temas únicos cargados: ${todosTemas.length}');
       } catch (e) {
@@ -136,7 +155,7 @@ class StatsScreenState extends State<StatsScreen> {
       // ✅ CARGAR SESIONES CON RETRY
       try {
         print('🌐 Cargando sesiones desde Supabase con userId=$userId...');
-        
+
         final response = await ConnectivityService.ejecutarConReintento(
           operacion: () => Supabase.instance.client
               .from('sesiones')
@@ -145,7 +164,7 @@ class StatsScreenState extends State<StatsScreen> {
               .order('fecha', ascending: false),
           intentosMaximos: 3,
         );
-        
+
         print('📦 Respuesta de Supabase: ${response.length} sesiones encontradas');
 
         for (var json in response) {
@@ -161,7 +180,7 @@ class StatsScreenState extends State<StatsScreen> {
               duracionTotal: json['duracion_total'] as int?,
               estado: json['estado'] as String? ?? 'programada',
             );
-            
+
             todasSesiones.add(sesion);
           } catch (e) {
             print('❌ Error parseando sesión: $e');
@@ -171,29 +190,15 @@ class StatsScreenState extends State<StatsScreen> {
         print('📊 Total de sesiones cargadas: ${todasSesiones.length}');
       } catch (e) {
         print('❌ Error Supabase: $e');
-        
-        // ✅ Mostrar error al usuario
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: const Text('Error de conexión. Verifica tu red.'),
-              backgroundColor: Colors.orange,
-              action: SnackBarAction(
-                label: 'REINTENTAR',
-                textColor: Colors.white,
-                onPressed: loadStats,
-              ),
-            ),
-          );
-        }
-        
         todasSesiones = [];
       }
 
       // Calcular estadísticas
       totalSesiones = todasSesiones.length;
-      totalFinalizadas = todasSesiones.where((s) => s.estado == 'finalizada').length;
-      totalIncompletas = todasSesiones.where((s) => s.estado == 'incompleta').length;
+      totalFinalizadas =
+          todasSesiones.where((s) => s.estado == 'finalizada').length;
+      totalIncompletas =
+          todasSesiones.where((s) => s.estado == 'incompleta').length;
       totalRapidas = todasSesiones.where((s) => s.esRapida).length;
 
       print('📈 ESTADÍSTICAS FINALES:');
@@ -212,6 +217,7 @@ class StatsScreenState extends State<StatsScreen> {
       print('✅ Carga completada');
     }
   }
+
 
   void aplicarFiltros() {
     print('🔍 Aplicando filtros: $tipoSeleccionado, $ordenSeleccionado');

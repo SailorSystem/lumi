@@ -9,6 +9,7 @@ import '../../../core/services/mood_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/services/stat_service.dart'; 
 import '../../../core/models/sesion.dart';
+import '../../../core/services/audio_player_service.dart';
 
 class PomodoroScreen extends StatefulWidget {
   final int? idSesion; // ✅ AGREGADO
@@ -89,6 +90,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
                 tiempoTranscurrido >= duracionEstipulada!) {
               tiempoEstipuladoCumplido = true;
               pauseTimer(); // ✅ Pausar el timer
+              _playSound(); 
               _mostrarDialogoTiempoCumplido();
             }
           }
@@ -214,125 +216,125 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
     return prefs.getBool('sound') ?? true;
   }
 
-  void _playSound() async {
+  Future<void> _playSound() async {
     if (await _isSoundEnabled()) {
       await _player.play(AssetSource('sounds/alert_finish.mp3'));
+    } else {
+      print('🔇 Sonido desactivado en ajustes');
     }
   }
 
-Future<void> _finalizarSesion() async {
-  print('\n╔════════════════════════════════════════════════╗');
-  print('║   INICIANDO FINALIZACIÓN DE SESIÓN POMODORO    ║');
-  print('╚════════════════════════════════════════════════╝');
-  
-  final sesionId = _sesionRapidaId ?? widget.idSesion;
-  
-  print('📋 DATOS INICIALES:');
-  print('   _sesionRapidaId: $_sesionRapidaId');
-  print('   widget.idSesion: ${widget.idSesion}');
-  print('   sesionId final: $sesionId');
-  print('   Es sesión rápida: ${_sesionRapidaId != null}');
-  
-  if (sesionId == null) {
-    print('❌ ERROR: sesionId es null, abortando...\n');
-    return;
-  }
-  
-  try {
-    print('\n📊 CALCULANDO DATOS:');
-    final duracionTotal = completedCycles * (studyTime + shortBreak);
-    print('   completedCycles: $completedCycles');
-    print('   studyTime: $studyTime');
-    print('   shortBreak: $shortBreak');
-    print('   duracionTotal: $duracionTotal segundos');
+  Future<void> _finalizarSesion() async {
+    print('\n╔════════════════════════════════════════════════╗');
+    print('║   INICIANDO FINALIZACIÓN DE SESIÓN POMODORO    ║');
+    print('╚════════════════════════════════════════════════╝');
     
-    final prefs = await SharedPreferences.getInstance();
-    final userId = prefs.getInt('user_id');
-    print('   userId: $userId');
+    final sesionId = _sesionRapidaId ?? widget.idSesion;
     
-    if (userId != null) {
-      print('\n😊 Actualizando estado de ánimo...');
-      await MoodService.calcularYActualizarEstadoAnimo(userId);
-      print('   ✅ Estado de ánimo actualizado');
+    print('📋 DATOS INICIALES:');
+    print('   _sesionRapidaId: $_sesionRapidaId');
+    print('   widget.idSesion: ${widget.idSesion}');
+    print('   sesionId final: $sesionId');
+    print('   Es sesión rápida: ${_sesionRapidaId != null}');
+    
+    if (sesionId == null) {
+      print('❌ ERROR: sesionId es null, abortando...\n');
+      return;
     }
-    
-    print('\n🔄 ACTUALIZANDO SESIÓN EN BD...');
-    print('   Sesión ID: $sesionId');
-    print('   Datos a actualizar:');
-    print('   - estado: finalizada');
-    print('   - duracion_total: $duracionTotal');
-    print('   - fecha: ${DateTime.now().toIso8601String()}');
     
     try {
-      await SesionService.actualizarSesion(
-        sesionId,
-        {
-          'estado': 'finalizada',
-          'duracion_total': duracionTotal,
-          'fecha': DateTime.now().toIso8601String(),
-        },
-      );
-      print('   ✅ Sesión actualizada en BD');
-    } catch (errorUpdate) {
-      print('   ❌ ERROR al actualizar sesión: $errorUpdate');
-      rethrow;
-    }
-    
-    print('\n📊 GUARDANDO ESTADÍSTICA...');
-    if (userId != null) {
+      print('\n📊 CALCULANDO DATOS:');
+      final duracionTotal = completedCycles * (studyTime + shortBreak);
+      print('   completedCycles: $completedCycles');
+      print('   studyTime: $studyTime');
+      print('   shortBreak: $shortBreak');
+      print('   duracionTotal: $duracionTotal segundos');
+      
+      final prefs = await SharedPreferences.getInstance();
+      final userId = prefs.getInt('user_id');
+      print('   userId: $userId');
+      
+      if (userId != null) {
+        print('\n😊 Actualizando estado de ánimo...');
+        await MoodService.calcularYActualizarEstadoAnimo(userId);
+        print('   ✅ Estado de ánimo actualizado');
+      }
+      
+      print('\n🔄 ACTUALIZANDO SESIÓN EN BD...');
+      print('   Sesión ID: $sesionId');
+      print('   Datos a actualizar:');
+      print('   - estado: finalizada');
+      print('   - duracion_total: $duracionTotal');
+      print('   - fecha: ${DateTime.now().toIso8601String()}');
+      
       try {
-        final statGuardada = await StatService.registrarEstadistica(
-          idUsuario: userId,
-          idSesion: sesionId,
-          tiempoTotalSegundos: duracionTotal,
-          ciclosCompletados: completedCycles,
+        await SesionService.actualizarSesion(
+          sesionId,
+          {
+            'estado': 'finalizada',
+            'duracion_total': duracionTotal,
+            'fecha': DateTime.now().toIso8601String(),
+          },
         );
-        
-        if (statGuardada) {
-          print('   ✅ Estadística guardada correctamente');
-        } else {
-          print('   ⚠️ Estadística retornó false');
+        print('   ✅ Sesión actualizada en BD');
+      } catch (errorUpdate) {
+        print('   ❌ ERROR al actualizar sesión: $errorUpdate');
+        rethrow;
+      }
+      
+      print('\n📊 GUARDANDO ESTADÍSTICA...');
+      if (userId != null) {
+        try {
+          final statGuardada = await StatService.registrarEstadistica(
+            idUsuario: userId,
+            idSesion: sesionId,
+            tiempoTotalSegundos: duracionTotal,
+            ciclosCompletados: completedCycles,
+          );
+          
+          if (statGuardada) {
+            print('   ✅ Estadística guardada correctamente');
+          } else {
+            print('   ⚠️ Estadística retornó false');
+          }
+        } catch (errorStat) {
+          print('   ❌ ERROR guardando estadística: $errorStat');
         }
-      } catch (errorStat) {
-        print('   ❌ ERROR guardando estadística: $errorStat');
+      }
+      
+      print('\n╔════════════════════════════════════════════════╗');
+      print('║          ✅ FINALIZACIÓN EXITOSA               ║');
+      print('╚════════════════════════════════════════════════╝\n');
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Sesión completada correctamente'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e, stackTrace) {
+      print('\n╔════════════════════════════════════════════════╗');
+      print('║             ❌ ERROR CRÍTICO                   ║');
+      print('╚════════════════════════════════════════════════╝');
+      print('Error: $e');
+      print('Stack trace:');
+      print(stackTrace);
+      print('════════════════════════════════════════════════\n');
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al guardar sesión: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     }
-    
-    print('\n╔════════════════════════════════════════════════╗');
-    print('║          ✅ FINALIZACIÓN EXITOSA               ║');
-    print('╚════════════════════════════════════════════════╝\n');
-    
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('✅ Sesión completada correctamente'),
-          backgroundColor: Colors.green,
-          duration: Duration(seconds: 2),
-        ),
-      );
-    }
-  } catch (e, stackTrace) {
-    print('\n╔════════════════════════════════════════════════╗');
-    print('║             ❌ ERROR CRÍTICO                   ║');
-    print('╚════════════════════════════════════════════════╝');
-    print('Error: $e');
-    print('Stack trace:');
-    print(stackTrace);
-    print('════════════════════════════════════════════════\n');
-    
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error al guardar sesión: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
   }
-}
 
-  
-  
   
   // ✅ Botón "Completar Sesión"
   Widget _buildCompletarButton() {

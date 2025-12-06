@@ -29,7 +29,7 @@ import '../../core/services/notification_service.dart';
 import '../../core/services/usage_tracker.dart';
 import '../../core/services/stats_usage_service.dart';
 import 'crear_sesion_screen.dart';
-
+import '../../widgets/no_connection_dialog.dart';
 
 
 class HomeScreen extends StatefulWidget {
@@ -252,27 +252,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       // ✅ Verificar conectividad primero
       final hayConexion = await ConnectivityService.verificarConexion();
       
-      if (!hayConexion) {
-        print('❌ Sin conexión a internet');
-        if (mounted) {
-          setState(() {
-            _completedSessions = [];
-          });
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: const Text('⚠️ Sin conexión. Verifica tu red.'),
-              backgroundColor: Colors.orange,
-              action: SnackBarAction(
-                label: 'REINTENTAR',
-                textColor: Colors.white,
-                onPressed: _loadCompletedSessions,
-              ),
-            ),
-          );
-        }
-        return;
-      }
-      
       // ✅ Marcar sesiones pasadas como incompletas
       await _marcarSesionesIncompletas();
       
@@ -308,27 +287,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
       print('📊 Sesiones mostradas en Home: ${_completedSessions.length}');
     } catch (e) {
-      print('❌ Error cargando sesiones: $e');
-      
-      if (mounted) {
-        setState(() {
-          _completedSessions = [];
-        });
-        
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error al cargar sesiones: ${e.toString().substring(0, 50)}...'),
-            backgroundColor: Colors.red,
-            action: SnackBarAction(
-              label: 'REINTENTAR',
-              textColor: Colors.white,
-              onPressed: _loadCompletedSessions,
-            ),
-          ),
-        );
+        print('❌ Error cargando sesiones: $e');
+        if (!mounted) return;
+        setState(() => _completedSessions = []);
+        // sin SnackBar aquí, el usuario ya verá el modal cuando realmente no haya internet
       }
     }
-  }
 
   Future<void> _eliminarSesion(Sesion sesion) async {
     final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
@@ -413,14 +377,16 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     DateTime selectedDate = sesion.fecha;
     TimeOfDay selectedTime = TimeOfDay.fromDateTime(sesion.fecha);
 
-    bool errorHora = false; // ✅ estado local de error en hora
+    bool errorHora = false;
+    final formKeyEdit = GlobalKey<FormState>(); // ✅ clave del Form
+
+    print('📝 Abriendo modal de edición para sesión ${sesion.idSesion}');
 
     final editado = await showDialog<bool>(
       context: context,
-      builder: (context) {
+      builder: (dialogContext) {
         return StatefulBuilder(
           builder: (context, setState) {
-            // helper local para validar fecha/hora (mínimo 5 min en el futuro)
             bool fechaHoraValida() {
               final nuevaFecha = DateTime(
                 selectedDate.year,
@@ -430,7 +396,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 selectedTime.minute,
               );
               final diff = nuevaFecha.difference(DateTime.now());
-              return diff.inMinutes >= 5;
+              final ok = diff.inMinutes >= 5;
+              print(
+                  '⏰ Validando fecha/hora nueva: $nuevaFecha | diff min=${diff.inMinutes} | ok=$ok');
+              return ok;
             }
 
             return AlertDialog(
@@ -453,43 +422,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               ),
               content: SingleChildScrollView(
                 child: Form(
+                  key: formKeyEdit, // ✅ aquí
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Advertencia si la sesión original ya pasó
-                      if (sesion.fecha.isBefore(DateTime.now()))
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          margin: const EdgeInsets.only(bottom: 16),
-                          decoration: BoxDecoration(
-                            color: Colors.orange.withOpacity(0.1),
-                            border: Border.all(
-                              color: Colors.orange,
-                              width: 1.5,
-                            ),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Row(
-                            children: [
-                              const Icon(Icons.warning,
-                                  color: Colors.orange, size: 20),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  'Esta sesión ya pasó. Actualiza la fecha.',
-                                  style: TextStyle(
-                                    color: Colors.orange.shade800,
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-
-                      // Campo nombre con validator
+                      // Nombre
                       TextFormField(
                         controller: nombreCtrl,
                         style: TextStyle(color: themeProvider.textColor),
@@ -534,7 +472,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
                       const SizedBox(height: 16),
 
-                      // Selector de fecha (sin error visual porque no se permiten fechas pasadas)
+                      // FECHA
                       Container(
                         decoration: BoxDecoration(
                           border: Border.all(
@@ -573,21 +511,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                               firstDate: DateTime.now(),
                               lastDate: DateTime.now()
                                   .add(const Duration(days: 365)),
-                              builder: (context, child) {
-                                return Theme(
-                                  data: Theme.of(context).copyWith(
-                                    colorScheme: ColorScheme.light(
-                                      primary: themeProvider.primaryColor,
-                                    ),
-                                  ),
-                                  child: child!,
-                                );
-                              },
                             );
                             if (picked != null) {
                               setState(() {
                                 selectedDate = picked;
-                                // recalcular error de hora completo
                                 errorHora = !fechaHoraValida();
                               });
                             }
@@ -597,7 +524,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
                       const SizedBox(height: 12),
 
-                      // Selector de hora con error visual
+                      // HORA
                       Container(
                         decoration: BoxDecoration(
                           border: Border.all(
@@ -638,24 +565,14 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                                 ),
                               ),
                               if (errorHora)
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 4),
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 4,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: Colors.redAccent.withOpacity(0.08),
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: Text(
-                                      'Debes elegir una hora al menos 5 min en el futuro',
-                                      style: TextStyle(
-                                        color: Colors.redAccent.withOpacity(0.9),
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w500,
-                                      ),
+                                const Padding(
+                                  padding: EdgeInsets.only(top: 4),
+                                  child: Text(
+                                    'La hora debe ser al menos 5 min en el futuro',
+                                    style: TextStyle(
+                                      color: Colors.redAccent,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w500,
                                     ),
                                   ),
                                 ),
@@ -667,16 +584,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                             final picked = await showTimePicker(
                               context: context,
                               initialTime: selectedTime,
-                              builder: (context, child) {
-                                return Theme(
-                                  data: Theme.of(context).copyWith(
-                                    colorScheme: ColorScheme.light(
-                                      primary: themeProvider.primaryColor,
-                                    ),
-                                  ),
-                                  child: child!,
-                                );
-                              },
                             );
                             if (picked != null) {
                               setState(() {
@@ -689,14 +596,13 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       ),
 
                       const SizedBox(height: 16),
-
                     ],
                   ),
                 ),
               ),
               actions: [
                 TextButton(
-                  onPressed: () => Navigator.pop(context, false),
+                  onPressed: () => Navigator.pop(dialogContext, false),
                   child: Text(
                     'Cancelar',
                     style: TextStyle(color: themeProvider.primaryColor),
@@ -704,12 +610,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 ),
                 ElevatedButton(
                   onPressed: () async {
-                    // Validar nombre (pinta error en el TextFormField)
-                    final form = Form.of(context);
-                    final okNombre = form?.validate() ?? true;
-
-                    // Validar fecha/hora
+                    final okNombre =
+                        formKeyEdit.currentState?.validate() ?? true;
                     final esValida = fechaHoraValida();
+
+                    print(
+                        '✅ Validación modal editar -> nombre=$okNombre, fechaHora=$esValida');
 
                     if (!okNombre || !esValida) {
                       setState(() {
@@ -718,7 +624,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       return;
                     }
 
-                    // Si todo está bien → guardar cambios
                     final nuevaFecha = DateTime(
                       selectedDate.year,
                       selectedDate.month,
@@ -728,14 +633,15 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     );
 
                     try {
-                      print('✏️ Actualizando sesión ${sesion.idSesion}...');
+                      print(
+                          '✏️ Actualizando sesión ${sesion.idSesion} en Supabase...');
+                      print(
+                          '   Nuevo nombre: ${nombreCtrl.text.trim()} | Nueva fecha: $nuevaFecha');
 
-                      // 1. Cancelar notificaciones antiguas
                       await NotificationService.cancelarNotificacionesSesion(
                           sesion.idSesion!);
                       print('✅ Notificaciones antiguas canceladas');
 
-                      // 2. Actualizar sesión
                       await SesionService.actualizarSesion(
                         sesion.idSesion!,
                         {
@@ -745,7 +651,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       );
                       print('✅ Sesión actualizada en BD');
 
-                      // 3. Re-programar notificaciones
                       await NotificationService.programarRecordatorio(
                         idSesion: sesion.idSesion!,
                         nombreSesion: nombreCtrl.text.trim(),
@@ -758,13 +663,15 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       );
                       print('✅ Notificaciones re-programadas');
 
-                      Navigator.pop(context, true);
-                    } catch (e) {
-                      print('❌ Error: $e');
+                      Navigator.pop(dialogContext, true);
+                    } catch (e, st) {
+                      print('❌ Error actualizando sesión: $e');
+                      print('STACK: $st');
                       if (mounted) {
                         ScaffoldMessenger.of(this.context).showSnackBar(
                           SnackBar(
-                            content: Text('❌ Error al actualizar: $e'),
+                            content: Text(
+                                '❌ Error al actualizar: ${e.toString().substring(0, 80)}'),
                             backgroundColor: Colors.red,
                           ),
                         );
@@ -787,6 +694,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
 
     if (editado == true) {
+      print('🔁 Recargando sesiones tras editar...');
       await _loadCompletedSessions();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -797,15 +705,23 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           ),
         );
       }
+    } else {
+      print('ℹ️ Edición cancelada o sin cambios');
     }
   }
 
 
   // ✅ NUEVO MÉTODO: Recargar sesiones con pull-to-refresh
-  Future<void> _refreshSessions() async {
-    print('🔃 Recargando sesiones (pull-to-refresh)...');
-    await _loadCompletedSessions();
+Future<void> _refreshSessions() async {
+  // Antes de llamar al servicio
+  final conectado = await ConnectivityService.verificarConexion();
+  if (!conectado) {
+    await showNoConnectionDialog(context);
+    // tras cerrar el modal, el usuario puede tocar de nuevo el botón
+    return;
   }
+  await _loadCompletedSessions();
+}
 
   // ---------------------- FILTRO ----------------------
   void _applyFilter() {
@@ -1084,85 +1000,69 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                           // ------------------- TÍTULO + FILTRO -------------------
                           Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 16),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                            child: Row(
                               children: [
-                                // TITULO
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Text(
-                                      "Sesiones programadas",
-                                      style: TextStyle(
-                                        fontSize: 22,
-                                        fontWeight: FontWeight.bold,
-                                        color: Theme.of(context).textTheme.bodyLarge?.color,
-                                      ),
-                                    ),
-                                    // ✅ Botón de recarga manual
-                                    IconButton(
-                                      icon: Icon(
-                                        Icons.refresh,
-                                        color: themeProvider.primaryColor,
-                                      ),
-                                      onPressed: _refreshSessions,
-                                      tooltip: 'Recargar sesiones',
-                                    ),
-                                  ],
-                                ),
-
-                                const SizedBox(height: 6),
-
-                                // BOTÓN FILTRO
-                                Align(
-                                  alignment: Alignment.centerLeft,
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                    decoration: BoxDecoration(
-                                      color: themeProvider.primaryColor.withOpacity(0.1),
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    child: DropdownButtonHideUnderline(
-                                      child: DropdownButton<String>(
-                                        value: _selectedFilter,
-                                        icon: Icon(Icons.filter_alt, color: themeProvider.primaryColor),
-                                        dropdownColor: themeProvider.cardColor,
-                                        style: TextStyle(
-                                          color: themeProvider.textColor,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                        items: [
-                                          "Más reciente",
-                                          "Más antiguo",
-                                          "A-Z",
-                                          "Z-A"
-                                        ].map((filter) {
-                                          return DropdownMenuItem<String>(
-                                            value: filter,
-                                            child: Text(
-                                              filter,
-                                              style: TextStyle(
-                                                color: themeProvider.primaryColor,
-                                                fontWeight: FontWeight.w600,
-                                              ),
-                                            ),
-                                          );
-                                        }).toList(),
-                                        onChanged: (value) {
-                                          setState(() {
-                                            _selectedFilter = value!;
-                                            _applyFilter();
-                                          });
-                                        },
-                                      ),
+                                Expanded(
+                                  child: Text(
+                                    "Sesiones programadas",
+                                    style: TextStyle(
+                                      fontSize: 22,
+                                      fontWeight: FontWeight.bold,
+                                      color: Theme.of(context).textTheme.bodyLarge?.color,
                                     ),
                                   ),
                                 ),
-
-                                const SizedBox(height: 20),
+                                // Filtro compacto
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: themeProvider.primaryColor.withOpacity(0.08),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: DropdownButtonHideUnderline(
+                                    child: DropdownButton<String>(
+                                      value: _selectedFilter,
+                                      icon: Icon(Icons.filter_alt, color: themeProvider.primaryColor, size: 18),
+                                      dropdownColor: themeProvider.cardColor,
+                                      style: TextStyle(
+                                        color: themeProvider.textColor,
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 13,
+                                      ),
+                                      items: const [
+                                        "Más reciente",
+                                        "Más antiguo",
+                                        "A-Z",
+                                        "Z-A",
+                                      ].map((filter) {
+                                        return DropdownMenuItem(
+                                          value: filter,
+                                          child: Text(filter),
+                                        );
+                                      }).toList(),
+                                      onChanged: (value) {
+                                        if (value == null) return;
+                                        setState(() {
+                                          _selectedFilter = value;
+                                          _applyFilter();
+                                        });
+                                      },
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                // Botón recargar compacto
+                                IconButton(
+                                  icon: Icon(Icons.refresh, color: themeProvider.primaryColor, size: 20),
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                                  onPressed: _refreshSessions,
+                                  tooltip: 'Recargar sesiones',
+                                ),
                               ],
-                            )
+                            ),
                           ),
+
 
                           const SizedBox(height: 8),
 
@@ -1396,51 +1296,53 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   // ------------------------- ITEM DE SESIÓN -------------------------
   Widget _sessionTile(BuildContext context, Sesion session) {
     final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
-    
+    final textColor = Theme.of(context).textTheme.bodyLarge?.color;
+
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       child: ListTile(
         leading: CircleAvatar(
           backgroundColor: Colors.blueGrey.withOpacity(0.25),
-          child: Icon(
-            Icons.access_time,
-            color: Theme.of(context).textTheme.bodyLarge?.color,
-            size: 22,
-          ),
+          child: Icon(Icons.access_time, color: textColor, size: 22),
         ),
         title: Text(
           session.nombreSesion,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
-        subtitle: Text(
-          session.fecha.toString().substring(0, 16),
-          style: TextStyle(color: Theme.of(context).textTheme.bodyLarge?.color),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '${session.fecha.day.toString().padLeft(2, '0')}/'
+              '${session.fecha.month.toString().padLeft(2, '0')}/'
+              '${session.fecha.year}',
+              style: TextStyle(color: textColor, fontSize: 12),
+            ),
+            Text(
+              '${session.fecha.hour.toString().padLeft(2, '0')}:'
+              '${session.fecha.minute.toString().padLeft(2, '0')}',
+              style: TextStyle(color: textColor, fontSize: 12),
+            ),
+          ],
         ),
-        // ✅ AGREGAR ESTOS BOTONES
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Botón editar
             IconButton(
-              icon: const Icon(Icons.edit, color: Colors.blue, size: 20),
+              icon: const Icon(Icons.edit, color: Colors.blue, size: 18),
               onPressed: () => _editarSesionModal(session),
               tooltip: 'Editar',
               padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(),
+              constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
             ),
-            const SizedBox(width: 4),
-            // Botón eliminar
             IconButton(
-              icon: const Icon(Icons.delete, color: Colors.red, size: 20),
+              icon: const Icon(Icons.delete, color: Colors.red, size: 18),
               onPressed: () => _eliminarSesion(session),
               tooltip: 'Eliminar',
               padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(),
+              constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
             ),
-            const SizedBox(width: 4),
-            // Flecha original
-            const Icon(Icons.chevron_right),
           ],
         ),
         onTap: () {
@@ -1454,6 +1356,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       ),
     );
   }
+
 
 
   // --------------------------- SIN SESIONES ---------------------------
