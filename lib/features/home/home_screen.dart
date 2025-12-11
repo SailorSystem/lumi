@@ -1097,7 +1097,7 @@ Future<void> _refreshSessions() async {
   Widget _headerHero() {
     final themeProvider = Provider.of<ThemeProvider>(context);
     final isDark = themeProvider.isDarkMode;
-    
+
     return ClipRRect(
       borderRadius: const BorderRadius.only(
         bottomLeft: Radius.circular(50),
@@ -1111,32 +1111,22 @@ Future<void> _refreshSessions() async {
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
             colors: isDark
-                ? [
-                    const Color(0xFF212C36),
-                    const Color(0xFF313940),
-                    themeProvider.backgroundColor,
-                  ]
-                : [
-                    const Color(0xFFB6C9D6),
-                    const Color(0xFFE6DACA),
-                    themeProvider.backgroundColor,
-                  ],
+                ? [const Color(0xFF212C36), const Color(0xFF313940), themeProvider.backgroundColor]
+                : [const Color(0xFFB6C9D6), const Color(0xFFE6DACA), themeProvider.backgroundColor],
             stops: const [0.0, 0.35, 1.0],
           ),
         ),
-
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // tarjeta centrada
             Container(
-              padding: const EdgeInsets.all(16),
+              width: 420,
+              padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                // ✅ Color adaptativo según el modo
                 color: isDark
-                    ? Colors.white.withOpacity(0.08) // Más sutil en modo oscuro
-                    : const Color(0xFFC6905B).withOpacity(0.20), // Más suave en modo claro
+                    ? Colors.white.withOpacity(0.08)
+                    : const Color(0xFFC6905B).withOpacity(0.20),
                 borderRadius: BorderRadius.circular(22),
-                // ✅ Agregar borde sutil
                 border: Border.all(
                   color: isDark
                       ? Colors.white.withOpacity(0.1)
@@ -1145,44 +1135,34 @@ Future<void> _refreshSessions() async {
                 ),
               ),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      LumiChar(
-                        size: 74,
-                        estadoAnimo: _estadoAnimo,
-                        onMessage: (msg) {
-                          setState(() {
-                            _quote = msg;
-                            _showQuote = true;
-                          });
-                        },
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Material(
-                          color: Colors.transparent,
-                          child: _motivationalBubble(),
-                        ),
-                      ),
-                    ],
+                  // Lumi centrado y más grande
+                  LumiChar(
+                    size: 96,
+                    estadoAnimo: _estadoAnimo,
+                    onMessage: (msg) {
+                      setState(() {
+                        _quote = msg;
+                        _showQuote = true;
+                      });
+                    },
                   ),
-
-                  const SizedBox(height: 10),
-
-                  // ✅ Texto con color adaptativo
+                  const SizedBox(height: 8),
+                  // texto base siempre igual al abrir
                   Text(
-                    "Me llamo Lumi ✨",
+                    'Me llamo Lumi ✨',
+                    textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
-                      color: isDark
-                          ? Colors.white.withOpacity(0.95)
-                          : Colors.white,
+                      color: isDark ? Colors.white.withOpacity(0.95) : Colors.white,
                     ),
                   ),
+                  const SizedBox(height: 6),
+                  // burbuja de frase centrada
+                  if (_showQuote)
+                    _motivationalBubbleCentered(isDark, themeProvider),
                 ],
               ),
             ),
@@ -1191,6 +1171,7 @@ Future<void> _refreshSessions() async {
       ),
     );
   }
+
 
   // --------------------- BURBUJA DE FRASE ------------------------
   Widget _motivationalBubble() {
@@ -1246,6 +1227,50 @@ Future<void> _refreshSessions() async {
                 color: isDark
                     ? themeProvider.primaryColor
                     : Colors.teal.shade700,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  //---------------------- BURBUJA CENTRADA ------------------------
+  Widget _motivationalBubbleCentered(bool isDark, ThemeProvider themeProvider) {
+    return AnimatedOpacity(
+      duration: const Duration(milliseconds: 250),
+      opacity: 1,
+      child: Container(
+        margin: const EdgeInsets.only(top: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        constraints: const BoxConstraints(maxWidth: 260),
+        decoration: BoxDecoration(
+          color: isDark
+              ? Colors.white.withOpacity(0.15)
+              : const Color(0xFFC6905B).withOpacity(0.25),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Expanded(
+              child: Text(
+                _quote,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: isDark ? Colors.white.withOpacity(0.95) : Colors.white,
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            GestureDetector(
+              onTap: () => setState(() => _showQuote = false),
+              child: Icon(
+                Icons.close,
+                size: 18,
+                color: isDark ? themeProvider.primaryColor : Colors.teal.shade700,
               ),
             ),
           ],

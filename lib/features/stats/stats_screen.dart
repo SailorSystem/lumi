@@ -123,34 +123,21 @@ class StatsScreenState extends State<StatsScreen> {
       todosTemas = [];
 
       // ✅ CARGAR TEMAS CON RETRY
+      // ✅ CARGAR TEMAS DESDE SharedPreferences (ya no desde Supabase)
       try {
-        print('🎨 Cargando temas del usuario...');
-
-        final temasResponse = await ConnectivityService.ejecutarConReintento(
-          operacion: () => Supabase.instance.client
-              .from('temas')
-              .select()
-              .eq('id_usuario', userId!),
-          intentosMaximos: 3,
-        );
-
-        final idsVistos = <int>{};
-        final temasUnicos = <Map<String, dynamic>>[];
-
-        for (var tema in temasResponse) {
-          final idTema = tema['id_tema'] as int;
-          if (!idsVistos.contains(idTema)) {
-            idsVistos.add(idTema);
-            temasUnicos.add(Map<String, dynamic>.from(tema));
-          }
-        }
-
-        todosTemas = temasUnicos;
-        print('✅ Temas únicos cargados: ${todosTemas.length}');
+        print('🎨 Cargando temas locales...');
+        final prefs = await SharedPreferences.getInstance();
+        final materiasJson = prefs.getStringList('materias') ?? [];
+        final temas = materiasJson
+            .map((e) => Map<String, dynamic>.from(json.decode(e)))
+            .toList();
+        todosTemas = temas;
+        print('✅ Temas locales cargados: ${todosTemas.length}');
       } catch (e) {
-        print('❌ Error cargando temas: $e');
+        print('❌ Error cargando temas locales: $e');
         todosTemas = [];
       }
+
 
       // ✅ CARGAR SESIONES CON RETRY
       try {
@@ -222,46 +209,53 @@ class StatsScreenState extends State<StatsScreen> {
   void aplicarFiltros() {
     print('🔍 Aplicando filtros: $tipoSeleccionado, $ordenSeleccionado');
     print('🎨 Temas seleccionados: $temasSeleccionados');
-    
-    // ✅ PASO 1: Filtrar por temas si hay alguno seleccionado
+
+    // 1) Filtrar por tema usando idTema real
     List<Sesion> temp;
     if (temasSeleccionados.isEmpty) {
-      temp = List.from(todasSesiones);
+      temp = List<Sesion>.from(todasSesiones);
     } else {
-      temp = todasSesiones
-          .where((s) => s.idTema != null && temasSeleccionados.contains(s.idTema))
-          .toList();
+      temp = todasSesiones.where((s) {
+        final id = s.idTema;
+        if (id == null) return false;
+        // aquí temasSeleccionados debe contener el MISMO id que s.idTema
+        return temasSeleccionados.contains(id);
+      }).toList();
     }
-    
-    // ✅ PASO 2: Filtrar por tipo
+
+    // 2) Filtrar por tipo
     if (tipoSeleccionado == 'Todas') {
       sesionesFiltradas = temp;
     } else if (tipoSeleccionado == 'Finalizadas') {
-      sesionesFiltradas = temp
-          .where((s) => s.estado == 'finalizada')
-          .toList();
+      sesionesFiltradas =
+          temp.where((s) => s.estado == 'finalizada').toList();
     } else if (tipoSeleccionado == 'Incompletas') {
-      sesionesFiltradas = temp
-          .where((s) => s.estado == 'incompleta')
-          .toList();
+      sesionesFiltradas =
+          temp.where((s) => s.estado == 'incompleta').toList();
     } else if (tipoSeleccionado == 'Rápidas') {
-      sesionesFiltradas = temp
-          .where((s) => s.esRapida)
-          .toList();
+      sesionesFiltradas = temp.where((s) => s.esRapida).toList();
     }
-    
-    // ✅ PASO 3: Ordenar
+
+    // 3) Orden
     if (ordenSeleccionado == 'Más reciente') {
       sesionesFiltradas.sort((a, b) => b.fecha.compareTo(a.fecha));
     } else if (ordenSeleccionado == 'Más antiguo') {
       sesionesFiltradas.sort((a, b) => a.fecha.compareTo(b.fecha));
     }
-    
+
+    // 4) Recalcular stats sobre filtradas
+    totalSesiones = sesionesFiltradas.length;
+    totalFinalizadas =
+        sesionesFiltradas.where((s) => s.estado == 'finalizada').length;
+    totalIncompletas =
+        sesionesFiltradas.where((s) => s.estado == 'incompleta').length;
+    totalRapidas =
+        sesionesFiltradas.where((s) => s.esRapida).length;
+
     print('✅ Sesiones filtradas: ${sesionesFiltradas.length}');
-    
-    // Resetear paginación
     sesionesVisibles = sesionesPorPagina;
   }
+
 
   Future<void> _mostrarModalTemas(Color cardColor, Color textColor, Color primary) async {
     await showModalBottomSheet(
@@ -326,11 +320,10 @@ class StatsScreenState extends State<StatsScreen> {
                           shrinkWrap: true,
                           itemCount: todosTemas.length,
                           itemBuilder: (context, index) {
-                            final tema = todosTemas[index];
-                            final idTema = tema['id_tema'] as int;
-                            final nombre = tema['titulo'] as String;
-                            final colorHex = tema['color_hex'] as String?;
-                            
+                          final tema = todosTemas[index];
+                          final idTema = index; 
+                          final nombre = (tema['nombre'] ?? 'Tema ${index + 1}') as String;
+                          final colorHex = tema['color_hex'] as String?;
                             // ✅ AGREGAR: Log para ver qué se está renderizando
                             print('🎨 Renderizando tema $index: id=$idTema, nombre=$nombre');
                             
@@ -651,13 +644,16 @@ class StatsScreenState extends State<StatsScreen> {
                   spacing: 8,
                   runSpacing: 8,
                   children: temasSeleccionados.map((idTema) {
-                    final tema = todosTemas.firstWhere(
-                      (t) => t['id_tema'] == idTema,
-                      orElse: () => {'titulo': 'Tema $idTema'},
-                    );
+                    final idx = idTema as int;
+                    Map<String, dynamic> tema;
+                    if (idx >= 0 && idx < todosTemas.length) {
+                      tema = todosTemas[idx];
+                    } else {
+                      tema = {};
+                    }
                     return Chip(
                       label: Text(
-                        tema['titulo'] as String,
+                        (tema['nombre'] as String?) ?? 'Tema $idTema',
                         style: const TextStyle(fontSize: 12),
                       ),
                       backgroundColor: primary.withOpacity(0.2),

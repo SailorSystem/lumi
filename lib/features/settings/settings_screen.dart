@@ -4,6 +4,7 @@ import '../../core/services/usuario_service.dart';
 import 'package:provider/provider.dart';
 import '../../core/providers/theme_provider.dart';
 import '../../core/services/sound_service.dart';
+import '../../core/services/audio_player_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   final int idUsuario;
@@ -264,6 +265,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           onChanged: (value) async {
                             await themeProvider.toggleTheme(value);
                             _changedForHome = true;
+
+                              if (value) {
+                              // solo cuando se activa
+                              AudioPlayerService.play('assets/sounds/alert_finish.mp3');
+                            }
                           },
                         ),
                       ),

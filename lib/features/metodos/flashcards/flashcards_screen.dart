@@ -1,19 +1,19 @@
+// flashcards_screen.dart
 import 'dart:async';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/providers/theme_provider.dart';
-import '../../../core/services/sesion_service.dart'; 
+import '../../../core/services/sesion_service.dart';
 import '../../../core/services/mood_service.dart';
 import '../../../core/models/sesion.dart';
-import '../../../core/services/stat_service.dart'; 
+import '../../../core/services/stat_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/services/audio_player_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../../../core/services/supabase_service.dart';
-import 'dart:async';
 
 class FlashcardsScreen extends StatefulWidget {
-  final int? idSesion; // ✅ AGREGAR
+  final int? idSesion;
   const FlashcardsScreen({super.key, this.idSesion});
 
   @override
@@ -39,11 +39,13 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
   int tiempoTranscurrido = 0;
   bool tiempoEstipuladoCumplido = false;
   Timer? tiempoTimer;
-  bool isStudying = false; // ✅ DEBE EXISTIR
-  bool isResting = false;  // ✅ DEBE EXISTIR
+  bool isStudying = false;
+  bool isResting = false;
   int? _sesionRapidaId;
-  DateTime? _sesionInicioFecha; 
-  // Para el descanso
+  DateTime? _sesionInicioFecha;
+  bool _skipInfoFlashcards = false;
+
+  // Descanso
   int _restSeconds = 0;
   Timer? _restTimer;
 
@@ -52,28 +54,40 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
     super.initState();
     _cargarDuracionEstipulada();
     _iniciarContadorTiempo();
-    _crearSesionRapidaSiNoExiste(); // ✅ AGREGAR ESTA LÍNEA
+    _crearSesionRapidaSiNoExiste();
+    _cargarPreferenciaInfo();
   }
+
   
+  Future<void> _cargarPreferenciaInfo() async {
+    final prefs = await SharedPreferences.getInstance();
+    _skipInfoFlashcards = prefs.getBool('skip_info_flashcards') ?? false;
+    if (!_skipInfoFlashcards && mounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _showInfoDialog(forced: true);
+      });
+    }
+  }
+
   Future<void> _crearSesionRapidaSiNoExiste() async {
     if (widget.idSesion != null) {
       print('📅 Sesión programada: ${widget.idSesion}');
       return;
     }
-    
+
     print('🚀 Creando sesión rápida de Flashcards...');
-    
+
     try {
       final prefs = await SharedPreferences.getInstance();
       final userId = prefs.getInt('user_id');
-      
+
       if (userId == null) {
         print('❌ No hay userId');
         return;
       }
-      
-      _sesionInicioFecha = DateTime.now(); // ✅ Guardar hora de inicio
-      
+
+      _sesionInicioFecha = DateTime.now();
+
       final nuevaSesion = Sesion(
         idUsuario: userId,
         nombreSesion: 'Sesión Rápida (Flashcards)',
@@ -82,9 +96,9 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
         estado: 'programada',
         duracionTotal: 0,
       );
-      
+
       final sesionCreada = await SesionService.crearSesion(nuevaSesion);
-      
+
       if (sesionCreada != null) {
         setState(() {
           _sesionRapidaId = sesionCreada.idSesion;
@@ -95,36 +109,35 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
       print('❌ Error creando sesión rápida: $e');
     }
   }
+
   Future<void> _cargarDuracionEstipulada() async {
     if (widget.idSesion == null) return;
-    
+
     try {
       final response = await Supabase.instance.client
           .from('sesiones')
           .select('duracion_total')
           .eq('id_sesion', widget.idSesion!)
           .single();
-      
+
       duracionEstipulada = response['duracion_total'] as int?;
-      
+
       if (duracionEstipulada != null) {
         print('⏱️ Duración estipulada: ${duracionEstipulada! ~/ 60} minutos');
       }
     } catch (e) {
       print('❌ Error cargando duración: $e');
     }
-  }   
+  }
 
   void _iniciarContadorTiempo() {
     tiempoTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      // ✅ Siempre incrementar (no hay pausas en mapa mental)
       setState(() {
         tiempoTranscurrido++;
       });
-      
-      // Verificar si se cumplió el tiempo
-      if (!tiempoEstipuladoCumplido && 
-          duracionEstipulada != null && 
+
+      if (!tiempoEstipuladoCumplido &&
+          duracionEstipulada != null &&
           tiempoTranscurrido >= duracionEstipulada!) {
         tiempoEstipuladoCumplido = true;
         AudioPlayerService.play('assets/sounds/alert_finish.mp3');
@@ -133,12 +146,9 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
     });
   }
 
-
-
-
   Future<void> _mostrarDialogoTiempoCumplido() async {
     final tp = Provider.of<ThemeProvider>(context, listen: false);
-    
+
     final continuar = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
@@ -188,32 +198,54 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
         ],
       ),
     );
-    
+
     if (continuar != true) {
-      // Finalizar sesión
       await _finalizarSesion();
       if (mounted) Navigator.of(context).pop(true);
     }
   }
-  void _showInfoDialog() {
+
+  void _showInfoDialog({bool forced = false}) {
     final tp = Provider.of<ThemeProvider>(context, listen: false);
+
     showDialog(
       context: context,
+      barrierDismissible: !forced,
       builder: (_) => AlertDialog(
         backgroundColor: tp.backgroundColor,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
         title: Text(
           "¿Cómo funciona?",
-          style: TextStyle(fontWeight: FontWeight.bold, color: tp.primaryColor),
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: tp.primaryColor,
+          ),
         ),
         content: Text(
-          "Crea cartas con términos o preguntas. Estudia volteando cada carta. Si te equivocas, la carta se repite más adelante. Descansa si lo necesitas, y vuelve cuando estés listo.",
+          "Crea cartas con términos o preguntas. Estudia volteando cada carta. "
+          "Si te equivocas, la carta se repite más adelante. Descansa si lo necesitas, y vuelve cuando estés listo.",
           style: TextStyle(color: tp.primaryColor, height: 1.4),
         ),
         actions: [
+          if (!_skipInfoFlashcards)
+            TextButton(
+              onPressed: () async {
+                final prefs = await SharedPreferences.getInstance();
+                await prefs.setBool('skip_info_flashcards', true);
+                setState(() => _skipInfoFlashcards = true);
+                if (mounted) Navigator.pop(context);
+              },
+              child: Text(
+                "No volver a mostrar",
+                style: TextStyle(color: tp.primaryColor),
+              ),
+            ),
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: Text("Entendido", style: TextStyle(color: tp.primaryColor)),
+            child: Text(
+              "Entendido",
+              style: TextStyle(color: tp.primaryColor),
+            ),
           ),
         ],
       ),
@@ -224,15 +256,15 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
     print('\n╔════════════════════════════════════════════════╗');
     print('║   INICIANDO FINALIZACIÓN DE FLASHCARDS         ║');
     print('╚════════════════════════════════════════════════╝');
-    
+
     final sesionId = _sesionRapidaId ?? widget.idSesion;
-    
+
     print('📋 DATOS INICIALES:');
     print('   _sesionRapidaId: $_sesionRapidaId');
     print('   widget.idSesion: ${widget.idSesion}');
     print('   sesionId final: $sesionId');
     print('   Es sesión rápida: ${_sesionRapidaId != null}');
-    
+
     if (sesionId == null) {
       print('❌ ERROR: sesionId es null, abortando...\n');
       return;
@@ -241,13 +273,13 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
     final prefs = await SharedPreferences.getInstance();
     final userId = prefs.getInt('user_id');
     print('   userId: $userId');
-    
+
     if (userId != null) {
       print('\n😊 Actualizando estado de ánimo...');
       await MoodService.calcularYActualizarEstadoAnimo(userId);
       print('   ✅ Estado de ánimo actualizado');
     }
-    
+
     try {
       print('\n🔄 ACTUALIZANDO SESIÓN EN BD...');
       print('   Sesión ID: $sesionId');
@@ -255,7 +287,7 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
       print('   - estado: finalizada');
       print('   - duracion_total: 0');
       print('   - fecha: ${DateTime.now().toIso8601String()}');
-      
+
       try {
         await SesionService.actualizarSesion(
           sesionId,
@@ -270,7 +302,7 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
         print('   ❌ ERROR al actualizar sesión: $errorUpdate');
         rethrow;
       }
-      
+
       print('\n📊 GUARDANDO ESTADÍSTICA...');
       if (userId != null) {
         try {
@@ -280,7 +312,7 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
             tiempoTotalSegundos: 0,
             ciclosCompletados: 1,
           );
-          
+
           if (statGuardada) {
             print('   ✅ Estadística guardada correctamente');
           } else {
@@ -290,11 +322,11 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
           print('   ❌ ERROR guardando estadística: $errorStat');
         }
       }
-      
+
       print('\n╔════════════════════════════════════════════════╗');
       print('║          ✅ FINALIZACIÓN EXITOSA               ║');
       print('╚════════════════════════════════════════════════╝\n');
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -312,7 +344,7 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
       print('Stack trace:');
       print(stackTrace);
       print('════════════════════════════════════════════════\n');
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -324,13 +356,10 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
     }
   }
 
-  
-  
-  // ✅ AGREGAR TODO ESTE MÉTODO
   Widget _buildCompletarButton() {
     final tp = Provider.of<ThemeProvider>(context);
     final btnBg = tp.isDarkMode ? tp.cardColor : Colors.white.withOpacity(0.8);
-    
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 20),
       child: ElevatedButton.icon(
@@ -373,7 +402,7 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
               ],
             ),
           );
-          
+
           if (confirmar == true) {
             await _finalizarSesion();
             if (mounted) {
@@ -394,6 +423,7 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
       ),
     );
   }
+
   void _showCreateCardDialog() {
     final tp = Provider.of<ThemeProvider>(context, listen: false);
     final frontController = TextEditingController();
@@ -411,7 +441,7 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
               controller: frontController,
               maxLength: 24,
               decoration: InputDecoration(
-                labelText: "Palabra (frontal)",
+                labelText: "Palabra (frontal)",
                 hintText: "Máximo 2 palabras",
                 labelStyle: TextStyle(color: tp.primaryColor),
               ),
@@ -422,7 +452,7 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
               maxLines: 3,
               maxLength: 80,
               decoration: InputDecoration(
-                labelText: "Definición (reverso)",
+                labelText: "Definición (reverso)",
                 labelStyle: TextStyle(color: tp.primaryColor),
               ),
             ),
@@ -467,30 +497,37 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
       _incorrect.clear();
       _current = 0;
       _isFront = true;
-      _cardsStudied = 0; // ✅ AGREGAR ESTA LÍNEA
+      _cardsStudied = 0;
     });
   }
-
 
   void _flipCard() => setState(() => _isFront = !_isFront);
 
   void _mark(bool correcto) {
     setState(() {
+      // contar intentos/estudiadas
+      _cardsStudied++;
+
       if (!correcto) {
-        _cardsStudied++; // ✅ AGREGAR ESTA LÍNEA
         _incorrect.add(_studyDeck[_current]);
       }
+
+      // si era la última carta del deck actual
       if (_current == _studyDeck.length - 1) {
+        // si hay incorrectas -> mostrar diálogo "Vamos de nuevo" antes de reiniciar
         if (_incorrect.isNotEmpty) {
-          _studyDeck.clear();
-          _studyDeck.addAll(_incorrect);
-          _incorrect.clear();
-          _current = 0;
-          _isFront = true;
+          // pedimos confirmación para repetir solo las incorrectas
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _showRetryIncorrectDialog();
+          });
         } else {
-          _isStudying = false;
-          _studyDeck.clear();
+          // no hubo incorrectas -> mostrar felicitación y opciones
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _showAllCorrectDialog();
+          });
         }
+
+        // limpiamos el deck actual (esperamos la acción del diálogo)
       } else {
         _current++;
         _isFront = true;
@@ -498,8 +535,164 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
     });
   }
 
-  // Descanso con contador
-  void _startRest() async {
+  // dialogo cuando todas correctas
+  Future<void> _showAllCorrectDialog() async {
+    final tp = Provider.of<ThemeProvider>(context, listen: false);
+
+    // Detectamos modo oscuro
+    final isDark = tp.isDarkMode;
+    final btnTextColor = isDark ? Colors.white : tp.primaryColor;
+    final btnBorder = isDark ? Colors.white70 : tp.primaryColor.withOpacity(0.45);
+
+    AudioPlayerService.play('assets/sounds/alert_finish.mp3');
+
+    await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(
+        backgroundColor: tp.cardColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: Row(
+          children: [
+            const Icon(Icons.celebration, color: Colors.amber),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                '¡Felicidades!',
+                style: TextStyle(
+                  color: tp.primaryColor,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        ),
+
+        content: Text(
+          'Has completado todas las tarjetas sin errores.\n\n¿Qué quieres hacer ahora?',
+          style: TextStyle(color: tp.primaryColor),
+        ),
+
+        actions: [
+          // -------- BOTÓN SECUNDARIO (OUTLINED) --------
+          OutlinedButton(
+            onPressed: () => Navigator.pop(context, 'menu'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: btnTextColor,
+              side: BorderSide(color: btnBorder),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+            ),
+            child: const Text('Volver al menú'),
+          ),
+
+          // -------- BOTÓN PRINCIPAL --------
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, 'repetir'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: tp.primaryColor,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+              elevation: 2,
+            ),
+            child: const Text('Volver a estudiar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+
+
+  // dialogo cuando hubo incorrectas
+  Future<void> _showRetryIncorrectDialog() async {
+    final tp = Provider.of<ThemeProvider>(context, listen: false);
+
+    // Detectamos modo oscuro
+    final isDark = tp.isDarkMode;
+    final btnTextColor = isDark ? Colors.white : tp.primaryColor;
+    final btnBorder = isDark ? Colors.white70 : tp.primaryColor.withOpacity(0.45);
+
+    AudioPlayerService.play('assets/sounds/alert_finish.mp3');
+
+    final r = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(
+        backgroundColor: tp.cardColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: Row(
+          children: [
+            const Icon(Icons.refresh, color: Colors.blue),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Vamos de nuevo',
+                style: TextStyle(
+                  color: tp.primaryColor,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        ),
+
+        content: Text(
+          'Hay ${_incorrect.length} tarjetas que necesitaban repasarse. ¿Quieres repasarlas ahora?',
+          style: TextStyle(color: tp.primaryColor),
+        ),
+
+        actions: [
+          // -------- BOTÓN SECUNDARIO --------
+          OutlinedButton(
+            onPressed: () => Navigator.pop(context, 'menu'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: btnTextColor,
+              side: BorderSide(color: btnBorder),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+            ),
+            child: const Text('Volver al menú'),
+          ),
+
+          // -------- BOTÓN PRINCIPAL --------
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, 'vamos'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: tp.primaryColor,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+              elevation: 2,
+            ),
+            child: const Text('Vamos'),
+          ),
+        ],
+      ),
+    );
+
+    if (r == 'vamos') {
+      setState(() {
+        _studyDeck = List.from(_incorrect);
+        _incorrect.clear();
+        _current = 0;
+        _isFront = true;
+        _isStudying = true;
+      });
+    } else {
+      setState(() {
+        _isStudying = false;
+        _studyDeck.clear();
+        _incorrect.clear();
+        _current = 0;
+        _isFront = true;
+      });
+    }
+  }
+
+  // ---------- Descanso (mejorado estilo "alarma/pomodoro") ----------
+  Future<void> _startRest() async {
     final tp = Provider.of<ThemeProvider>(context, listen: false);
     final option = await showDialog<String>(
       context: context,
@@ -516,71 +709,213 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
       ),
     );
 
-    int seconds = 0;
     if (option == 'period') {
-      Duration? picked = await showModalBottomSheet<Duration>(
+      // Dialog tipo alarma / pomodoro
+      final pickedDuration = await showModalBottomSheet<Duration>(
         context: context,
-        builder: (_) {
+        isScrollControlled: true,
+        backgroundColor: tp.cardColor,
+        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+        builder: (ctx) {
           int minutes = 5;
-          return StatefulBuilder(
-            builder: (ctx, setSheetState) {
-              final tpSheet = Provider.of<ThemeProvider>(ctx, listen: false);
-              return Container(
-                padding: const EdgeInsets.all(18),
-                color: tpSheet.backgroundColor,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text("¿Cuántos minutos quieres descansar?", style: TextStyle(fontWeight: FontWeight.bold, color: tpSheet.primaryColor)),
-                    Slider(
-                      value: minutes.toDouble(),
-                      divisions: 23,
-                      min: 5,
-                      max: 60,
-                      label: "$minutes min",
-                      onChanged: (v) => setSheetState(() => minutes = v.round()),
+          int seconds = 0;
+
+          return StatefulBuilder(builder: (ctx, setS) {
+            String timeStr() {
+              final mm = minutes.toString().padLeft(2, '0');
+              final ss = seconds.toString().padLeft(2, '0');
+              return '$mm:$ss';
+            }
+
+            void incMin() => setS(() => minutes = (minutes + 1).clamp(1, 999));
+            void decMin() => setS(() => minutes = (minutes - 1).clamp(1, 999));
+            void incSec() => setS(() => seconds = (seconds + 15) % 60);
+            void decSec() => setS(() => seconds = (seconds - 15).clamp(0, 59));
+
+            return Padding(
+              padding: EdgeInsets.fromLTRB(20, 20, 20, MediaQuery.of(ctx).viewInsets.bottom + 20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('Descansar por periodo', style: TextStyle(color: tp.primaryColor, fontWeight: FontWeight.bold, fontSize: 18)),
+                  const SizedBox(height: 12),
+                  // Gran display centrado tipo alarma
+                  Container(
+                    padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 24),
+                    decoration: BoxDecoration(
+                      color: tp.isDarkMode ? Colors.black54 : Colors.white,
+                      borderRadius: BorderRadius.circular(14),
+                      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 12)],
                     ),
-                    ElevatedButton(
-                      onPressed: () => Navigator.pop(ctx, Duration(minutes: minutes)),
-                      child: Text('Comenzar Descanso', style: TextStyle(color: tpSheet.primaryColor)),
-                      style: ElevatedButton.styleFrom(backgroundColor: Colors.white.withOpacity(0.9)),
-                    )
-                  ],
-                ),
+                    child: Column(
+                      children: [
+                        Text('Tiempo', style: TextStyle(color: tp.primaryColor.withOpacity(0.8))),
+                        const SizedBox(height: 8),
+                        Text(timeStr(), style: TextStyle(fontSize: 48, fontWeight: FontWeight.bold, color: tp.primaryColor)),
+                        const SizedBox(height: 12),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            // -1 min
+                            IconButton(
+                              onPressed: decMin,
+                              icon: Icon(Icons.remove_circle_outline, color: tp.primaryColor),
+                              iconSize: 36,
+                            ),
+                            const SizedBox(width: 6),
+                            ElevatedButton(
+                              onPressed: () => setS(() {
+                                minutes = minutes + 5;
+                              }),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: tp.primaryColor,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              ),
+                              child: const Padding(
+                                padding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                                child: Text('+5 min', style: TextStyle(color: Colors.white)),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            IconButton(
+                              onPressed: incMin,
+                              icon: Icon(Icons.add_circle_outline, color: tp.primaryColor),
+                              iconSize: 36,
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        // segundos quick adjust
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            IconButton(onPressed: decSec, icon: Icon(Icons.remove, color: tp.primaryColor)),
+                            const SizedBox(width: 8),
+                            Text('$seconds s', style: TextStyle(color: tp.primaryColor)),
+                            const SizedBox(width: 8),
+                            IconButton(onPressed: incSec, icon: Icon(Icons.add, color: tp.primaryColor)),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          child: Text('Cancelar', style: TextStyle(color: tp.primaryColor)),
+                          style: OutlinedButton.styleFrom(side: BorderSide(color: tp.primaryColor.withOpacity(0.45))),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () {
+                            final total = Duration(minutes: minutes, seconds: seconds);
+                            if (total.inSeconds <= 0) {
+                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                                content: Text('El tiempo debe ser mayor a 0'),
+                                backgroundColor: Colors.orange,
+                              ));
+                              return;
+                            }
+                            Navigator.pop(ctx, total);
+                          },
+                          child: const Text('Comenzar descanso'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            );
+          });
+        },
+      );
+
+      if (pickedDuration != null) {
+        // arrancar descanso
+        _startRestTimer(pickedDuration.inSeconds);
+      }
+    } else if (option == 'hour') {
+      // elegir hora objetivo
+      final now = DateTime.now();
+      TimeOfDay? t = await showTimePicker(
+        context: context,
+        initialTime: TimeOfDay.fromDateTime(now.add(const Duration(minutes: 5))),
+      );
+      if (t != null) {
+        DateTime target = DateTime(now.year, now.month, now.day, t.hour, t.minute);
+        if (target.isBefore(now)) {
+          // No permitimos horas pasadas
+          await showDialog(
+            context: context,
+            builder: (_) {
+              final tp = Provider.of<ThemeProvider>(context, listen: false);
+              return AlertDialog(
+                backgroundColor: tp.cardColor,
+                title: Text('Hora inválida', style: TextStyle(color: tp.primaryColor, fontWeight: FontWeight.bold)),
+                content: Text('La hora seleccionada ya pasó. Elige una hora en el futuro.', style: TextStyle(color: tp.primaryColor)),
+                actions: [
+                  TextButton(onPressed: () => Navigator.pop(context), child: Text('Entendido', style: TextStyle(color: tp.primaryColor))),
+                ],
               );
             },
           );
-        },
-      );
-      if (picked != null) seconds = picked.inSeconds;
-    } else if (option == 'hour') {
-      TimeOfDay? t = await showTimePicker(
-        context: context,
-        initialTime: TimeOfDay.now().replacing(minute: TimeOfDay.now().minute + 5),
-      );
-      if (t != null) {
-        final now = DateTime.now();
-        DateTime target = DateTime(now.year, now.month, now.day, t.hour, t.minute);
-        if (target.isBefore(now)) target = target.add(const Duration(days: 1));
-        seconds = target.difference(now).inSeconds;
+          return;
+        }
+        final seconds = target.difference(now).inSeconds;
+        if (seconds > 0) {
+          _startRestTimer(seconds);
+        }
       }
     }
+  }
 
-    if (seconds > 0) {
-      setState(() {
-        _isResting = true;
-        _restSeconds = seconds;
-      });
-      _restTimer?.cancel();
-      _restTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-        if (_restSeconds <= 1) {
-          timer.cancel();
-          setState(() => _isResting = false);
-        } else {
-          setState(() => _restSeconds--);
-        }
-      });
+  void _startRestTimer(int seconds) {
+    // Inicializar/validar
+    if (seconds <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('El tiempo debe ser mayor a 0'), backgroundColor: Colors.orange));
+      return;
     }
+    setState(() {
+      _isResting = true;
+      _restSeconds = seconds;
+    });
+
+    _restTimer?.cancel();
+    _restTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (_restSeconds <= 1) {
+        timer.cancel();
+        setState(() {
+          _isResting = false;
+          _restSeconds = 0;
+        });
+        AudioPlayerService.play('assets/sounds/alert_finish.mp3');
+        // mostrar dialogo al terminar descanso
+        if (mounted) {
+          final tp = Provider.of<ThemeProvider>(context, listen: false);
+          showDialog(
+            context: context,
+            builder: (_) => AlertDialog(
+              backgroundColor: tp.cardColor,
+              title: Row(
+                children: [Icon(Icons.bedtime, color: tp.primaryColor), const SizedBox(width: 8), Text('Descanso finalizado', style: TextStyle(color: tp.primaryColor))],
+              ),
+              content: Text('Se terminó tu descanso. ¿Listo para volver a estudiar?', style: TextStyle(color: tp.primaryColor)),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(context), child: Text('Volver al menú', style: TextStyle(color: tp.primaryColor))),
+                ElevatedButton(onPressed: () { Navigator.pop(context); _startStudySession(); }, child: const Text('Volver a estudiar')),
+              ],
+            ),
+          );
+        }
+      } else {
+        setState(() => _restSeconds--);
+      }
+    });
   }
 
   void _finishRestEarly() {
@@ -588,7 +923,6 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
     setState(() => _isResting = false);
   }
 
-  // Descanso: vista con contador
   Widget _restingView() {
     final tp = Provider.of<ThemeProvider>(context);
     int mins = _restSeconds ~/ 60;
@@ -624,13 +958,12 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
     );
   }
 
-  // Vista de la carta y botones
   Widget _studyView() {
     final tp = Provider.of<ThemeProvider>(context);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     if (_studyDeck.isEmpty) {
       final btnBg = tp.isDarkMode ? tp.cardColor : Colors.white.withOpacity(0.8);
-      
+
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -658,12 +991,8 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
               ),
             ),
             const SizedBox(height: 40),
-            
-            if (widget.idSesion != null && _cardsStudied > 0)
-              _buildCompletarButton(),
-            
+            if (widget.idSesion != null && _cardsStudied > 0) _buildCompletarButton(),
             const SizedBox(height: 16),
-            
             ElevatedButton.icon(
               onPressed: () {
                 setState(() {
@@ -714,8 +1043,8 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 450),
               curve: Curves.easeInOut,
-              width: 270,
-              height: 160,
+              width: 310,
+              height: 180,
               decoration: BoxDecoration(
                 color: isFront ? frontColor : backColor,
                 borderRadius: BorderRadius.circular(18),
@@ -819,56 +1148,210 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
     );
   }
 
+  // ---------- VER / EDITAR CARTAS (modal) ----------
+  Future<void> _openManageCardsModal() async {
+    final tp = Provider.of<ThemeProvider>(context, listen: false);
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: tp.cardColor,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
+      builder: (ctx) {
+        return StatefulBuilder(builder: (ctx, setS) {
+          return Padding(
+            padding: EdgeInsets.fromLTRB(16, 12, 16, MediaQuery.of(ctx).viewInsets.bottom + 12),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(height: 4, width: 44, decoration: BoxDecoration(color: tp.primaryColor.withOpacity(0.2), borderRadius: BorderRadius.circular(4))),
+                const SizedBox(height: 12),
+                Text("Mis cartas", style: TextStyle(color: tp.primaryColor, fontWeight: FontWeight.bold, fontSize: 18)),
+                const SizedBox(height: 12),
+                if (_flashcards.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 24),
+                    child: Text("Aún no tienes cartas. Crea una para empezar.", style: TextStyle(color: tp.primaryColor.withOpacity(0.8))),
+                  )
+                else
+                  ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: _flashcards.length,
+                    separatorBuilder: (_, __) => const Divider(),
+                    itemBuilder: (_, i) {
+                      final c = _flashcards[i];
+                      return ListTile(
+                        leading: CircleAvatar(child: Text('${i + 1}')),
+                        title: Text(c.front, style: TextStyle(color: tp.primaryColor, fontWeight: FontWeight.w600)),
+                        subtitle: Text(c.back, style: TextStyle(color: tp.primaryColor.withOpacity(0.8))),
+                        trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                          IconButton(
+                            icon: const Icon(Icons.edit_outlined),
+                            onPressed: () {
+                              // Editar carta
+                              final frontCtrl = TextEditingController(text: c.front);
+                              final backCtrl = TextEditingController(text: c.back);
+                              showDialog(
+                                context: context,
+                                builder: (_) => AlertDialog(
+                                  backgroundColor: tp.backgroundColor,
+                                  title: Text('Editar carta', style: TextStyle(color: tp.primaryColor)),
+                                  content: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      TextField(controller: frontCtrl, decoration: InputDecoration(labelText: 'Frontal', labelStyle: TextStyle(color: tp.primaryColor))),
+                                      TextField(controller: backCtrl, minLines: 2, maxLines: 4, decoration: InputDecoration(labelText: 'Reverso', labelStyle: TextStyle(color: tp.primaryColor))),
+                                    ],
+                                  ),
+                                  actions: [
+                                    TextButton(onPressed: () => Navigator.pop(context), child: Text('Cancelar', style: TextStyle(color: tp.primaryColor))),
+                                    TextButton(
+                                      onPressed: () {
+                                        if (frontCtrl.text.trim().isNotEmpty && backCtrl.text.trim().isNotEmpty) {
+                                          setState(() {
+                                            _flashcards[i] = Flashcard(front: frontCtrl.text.trim(), back: backCtrl.text.trim());
+                                          });
+                                          setS(() {}); // refresh modal list
+                                          Navigator.pop(context);
+                                        }
+                                      },
+                                      child: Text('Guardar', style: TextStyle(color: tp.primaryColor)),
+                                    )
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline),
+                            onPressed: () {
+                              showDialog(
+                                context: context,
+                                builder: (_) => AlertDialog(
+                                  backgroundColor: tp.cardColor,
+                                  title: Text('Eliminar carta', style: TextStyle(color: tp.primaryColor)),
+                                  content: Text('¿Eliminar la carta "${c.front}"?', style: TextStyle(color: tp.primaryColor)),
+                                  actions: [
+                                    TextButton(onPressed: () => Navigator.pop(context), child: Text('Cancelar', style: TextStyle(color: tp.primaryColor))),
+                                    TextButton(
+                                      onPressed: () {
+                                        setState(() => _flashcards.removeAt(i));
+                                        setS(() {});
+                                        Navigator.pop(context);
+                                      },
+                                      child: Text('Eliminar', style: TextStyle(color: Colors.red)),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+                        ]),
+                      );
+                    },
+                  ),
+                const SizedBox(height: 12),
+                ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    _showCreateCardDialog();
+                  },
+                  icon: Icon(Icons.add, color: tp.primaryColor),
+                  label: Text('Crear carta', style: TextStyle(color: tp.primaryColor)),
+                  style: ElevatedButton.styleFrom(backgroundColor: tp.isDarkMode ? tp.cardColor : Colors.white.withOpacity(0.9)),
+                ),
+                const SizedBox(height: 12),
+              ],
+            ),
+          );
+        });
+      },
+    );
+  }
+
   Widget _mainMenuView() {
     final tp = Provider.of<ThemeProvider>(context);
-    final btnBg = tp.isDarkMode ? tp.cardColor : Colors.white.withOpacity(0.8);
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          _flashcards.isEmpty
-              ? Text("No tienes cartas aún.", style: TextStyle(color: tp.primaryColor, fontSize: 16))
-              : Text(
-                  "Tienes ${_flashcards.length} cartas creadas",
-                  style: TextStyle(color: tp.primaryColor, fontWeight: FontWeight.bold),
+    final btnBg = tp.isDarkMode ? tp.cardColor : Colors.white.withOpacity(0.9);
+
+    // Ocupa más espacio y botones más grandes
+    return SingleChildScrollView(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 30),
+        child: Column(
+          children: [
+            SizedBox(height: 8),
+            _flashcards.isEmpty
+                ? Text("No tienes cartas aún.", style: TextStyle(color: tp.primaryColor, fontSize: 18))
+                : Text(
+                    "Tienes ${_flashcards.length} cartas creadas",
+                    style: TextStyle(color: tp.primaryColor, fontWeight: FontWeight.bold, fontSize: 18),
+                  ),
+            const SizedBox(height: 28),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _openManageCardsModal,
+                icon: Icon(Icons.view_list, color: tp.primaryColor),
+                label: Text("Ver y editar cartas", style: TextStyle(color: tp.primaryColor, fontWeight: FontWeight.w700)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: btnBg,
+                  padding: const EdgeInsets.symmetric(vertical: 18),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  elevation: 0,
                 ),
-          const SizedBox(height: 32),
-          ElevatedButton.icon(
-            onPressed: _showCreateCardDialog,
-            icon: Icon(Icons.add, color: tp.primaryColor),
-            label: Text("Crear Cartas", style: TextStyle(color: tp.primaryColor, fontWeight: FontWeight.w700)),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: btnBg,
-              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-              elevation: 0,
+              ),
             ),
-          ),
-          const SizedBox(height: 16),
-          ElevatedButton.icon(
-            onPressed: _startStudySession,
-            icon: Icon(Icons.play_arrow, color: tp.primaryColor),
-            label: Text("Estudiar", style: TextStyle(color: tp.primaryColor, fontWeight: FontWeight.w700)),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: btnBg,
-              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-              elevation: 0,
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _showCreateCardDialog,
+                icon: Icon(Icons.add, color: tp.primaryColor),
+                label: Text("Crear Cartas", style: TextStyle(color: tp.primaryColor, fontWeight: FontWeight.w700)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: btnBg,
+                  padding: const EdgeInsets.symmetric(vertical: 18),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  elevation: 0,
+                ),
+              ),
             ),
-          ),
-          const SizedBox(height: 16),
-          ElevatedButton.icon(
-            onPressed: _startRest,
-            icon: Icon(Icons.coffee, color: tp.primaryColor),
-            label: Text("Descansar", style: TextStyle(color: tp.primaryColor, fontWeight: FontWeight.w700)),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: btnBg,
-              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-              elevation: 0,
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _startStudySession,
+                icon: Icon(Icons.play_arrow, color: tp.primaryColor),
+                label: Text("Estudiar", style: TextStyle(color: tp.primaryColor, fontWeight: FontWeight.w700)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: btnBg,
+                  padding: const EdgeInsets.symmetric(vertical: 18),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  elevation: 0,
+                ),
+              ),
             ),
-          ),
-        ],
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _startRest,
+                icon: Icon(Icons.coffee, color: tp.primaryColor),
+                label: Text("Descansar", style: TextStyle(color: tp.primaryColor, fontWeight: FontWeight.w700)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: btnBg,
+                  padding: const EdgeInsets.symmetric(vertical: 18),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  elevation: 0,
+                ),
+              ),
+            ),
+            const SizedBox(height: 32),
+            // Info pequeño
+            Text('Consejo: toma descansos cortos y enfocados.', style: TextStyle(color: tp.primaryColor.withOpacity(0.7))),
+            const SizedBox(height: 40),
+          ],
+        ),
       ),
     );
   }
@@ -891,22 +1374,15 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
           style: TextStyle(color: tp.primaryColor),
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: Text("No", style: TextStyle(color: tp.primaryColor)),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: Text("Sí", style: TextStyle(color: tp.primaryColor)),
-          ),
+          TextButton(onPressed: () => Navigator.pop(context, false), child: Text("No", style: TextStyle(color: tp.primaryColor))),
+          TextButton(onPressed: () => Navigator.pop(context, true), child: Text("Sí", style: TextStyle(color: tp.primaryColor))),
         ],
       ),
     );
-    
-    // ✅ FINALIZAR SESIÓN SI CONFIRMA SALIR
+
     if (salir == true) {
       final sesionId = _sesionRapidaId ?? widget.idSesion;
-      
+
       if (sesionId != null) {
         try {
           print('🔄 Finalizando Flashcards...');
@@ -918,24 +1394,19 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
         }
       }
     }
-      
+
     return salir == true;
   }
-
-
 
   @override
   void dispose() {
     _restTimer?.cancel();
-    tiempoTimer?.cancel(); // ✅ AGREGAR
-      if (widget.idSesion != null && _cardsStudied > 0) {
-    SesionService.actualizarEstadoSesion(
-      widget.idSesion!,
-      'finalizada',
-    ).catchError((e) {
-      print('Error finalizando sesión en dispose: $e');
-    });
-  }
+    tiempoTimer?.cancel();
+    if (widget.idSesion != null && _cardsStudied > 0) {
+      SesionService.actualizarEstadoSesion(widget.idSesion!, 'finalizada').catchError((e) {
+        print('Error finalizando sesión en dispose: $e');
+      });
+    }
     super.dispose();
   }
 
@@ -958,28 +1429,15 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
             style: TextStyle(color: tp.primaryColor, fontWeight: FontWeight.bold),
           ),
           actions: [
-            IconButton(
-              icon: Icon(Icons.info_outline, color: tp.primaryColor),
-              onPressed: _showInfoDialog,
-            ),
+            IconButton(icon: Icon(Icons.info_outline, color: tp.primaryColor), onPressed: _showInfoDialog),
           ],
-          // Gradiente igual que Home
           flexibleSpace: Container(
             decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: colors,
-                stops: const [0.0, 0.35, 1.0],
-              ),
+              gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: colors, stops: const [0.0, 0.35, 1.0]),
             ),
           ),
         ),
-        body: _isResting
-            ? _restingView()
-            : _isStudying
-                ? _studyView()
-                : _mainMenuView(),
+        body: _isResting ? _restingView() : _isStudying ? _studyView() : _mainMenuView(),
       ),
     );
   }

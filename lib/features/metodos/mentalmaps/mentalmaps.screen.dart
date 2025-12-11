@@ -44,6 +44,7 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
   bool tiempoEstipuladoCumplido = false;
   Timer? tiempoTimer;
   DateTime? _sesionInicioFecha;
+  bool _skipInfoMental = false;
 
   @override
   void initState() {
@@ -52,6 +53,17 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
     _cargarDuracionEstipulada();
     _iniciarContadorTiempo();
     _crearSesionRapidaSiNoExiste(); // ✅ AGREGAR ESTA LÍNEA
+    _cargarPreferenciaInfo();
+  }
+
+  Future<void> _cargarPreferenciaInfo() async {
+    final prefs = await SharedPreferences.getInstance();
+    _skipInfoMental = prefs.getBool('skip_info_mental') ?? false;
+    if (!_skipInfoMental && mounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _showInfoDialog(forced: true);
+      });
+    }
   }
 
   Future<void> _cargarDuracionEstipulada() async {
@@ -213,27 +225,50 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
     return list[level % list.length];
   }
 
-  void _showInfoDialog() {
+  void _showInfoDialog({bool forced = false}) {
     final tp = Provider.of<ThemeProvider>(context, listen: false);
+
     showDialog(
       context: context,
+      barrierDismissible: !forced,
       builder: (_) => AlertDialog(
         backgroundColor: tp.backgroundColor,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text("¿Qué es un mapa mental?", style: TextStyle(fontWeight: FontWeight.bold, color: tp.primaryColor)),
+        title: Text(
+          "¿Qué es un mapa mental?",
+          style: TextStyle(fontWeight: FontWeight.bold, color: tp.primaryColor),
+        ),
         content: Text(
-          "Un mapa mental te ayuda a organizar ideas y recordar conceptos de forma visual y conectada. Cada círculo es un tema o subtema, ¡y los colores te ayudan a diferenciar niveles fácilmente!",
+          "Un mapa mental te ayuda a organizar ideas y recordar conceptos de forma visual y conectada. "
+          "Cada círculo es un tema o subtema, ¡y los colores te ayudan a diferenciar niveles fácilmente!",
           style: TextStyle(color: tp.primaryColor),
         ),
         actions: [
+          if (!_skipInfoMental)
+            TextButton(
+              onPressed: () async {
+                final prefs = await SharedPreferences.getInstance();
+                await prefs.setBool('skip_info_mental', true);
+                setState(() => _skipInfoMental = true);
+                if (mounted) Navigator.pop(context);
+              },
+              child: Text(
+                "No volver a mostrar",
+                style: TextStyle(color: tp.primaryColor),
+              ),
+            ),
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: Text("Entendido", style: TextStyle(color: tp.primaryColor)),
+            child: Text(
+              "Entendido",
+              style: TextStyle(color: tp.primaryColor),
+            ),
           ),
         ],
       ),
     );
   }
+
 
   @override
   void dispose() {

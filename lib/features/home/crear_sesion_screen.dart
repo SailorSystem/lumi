@@ -6,8 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'home_screen.dart';
 import '../../core/models/sesion.dart';
-import '../../core/models/tema.dart';
-import '../../core/services/tema_service.dart';
+import '../../core/local/local_tema_repository.dart';
 import '../../core/services/sesion_service.dart';
 import '../../core/providers/theme_provider.dart';
 import '../../core/services/notification_service.dart';
@@ -31,13 +30,16 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
   List<Map<String, dynamic>> _metodosDb = [];
   Map<String, dynamic>? materiaSel;
   DateTime selectedDate = DateTime.now();
-  TimeOfDay selectedTime = TimeOfDay.now();
+  TimeOfDay selectedTime = TimeOfDay.fromDateTime(
+  DateTime.now().add(const Duration(minutes: 10)),
+  );
   Duration selectedDuration = const Duration(hours: 1);
   List<Map<String, dynamic>> _materias = [];
   Duration get _minOffset => const Duration(minutes: 5);
   String? _ayudaTiempo;
   bool _errorFechaHora = false;
   bool _errorDuracion = false;
+  bool _errorNombreMateria = false;
 
   bool _fechaHoraEsValida() {
     final fechaSeleccionada = DateTime(
@@ -477,10 +479,10 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
     final cardColor = themeProvider.cardColor;
     final textColor = themeProvider.textColor;
     final primary = themeProvider.primaryColor;
-    
+
     final nameCtrl = TextEditingController();
     Color picked = _paletteOrganizada.first.first;
-    
+
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -489,220 +491,249 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (ctx) {
-        return StatefulBuilder(builder: (ctx, setS) {
-          final bottom = MediaQuery.of(ctx).viewInsets.bottom;
-          return SingleChildScrollView(
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + bottom),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    height: 4,
-                    width: 44,
-                    decoration: BoxDecoration(
-                      color: textColor.withOpacity(0.3),
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  
-                  Text(
-                    'Nueva Materia',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 18,
-                      color: textColor,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  
-                  TextField(
-                    controller: nameCtrl,
-                    style: TextStyle(color: textColor),
-                    decoration: InputDecoration(
-                      labelText: 'Nombre de la materia',
-                      labelStyle: TextStyle(color: textColor.withOpacity(0.7)),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
+        // esta variable vive durante toda la vida del modal
+        bool errorLocal = false;
+        // form key persistente dentro del modal
+        final formKey = GlobalKey<FormState>();
+
+        return StatefulBuilder(
+          builder: (ctx, setS) {
+            final bottom = MediaQuery.of(ctx).viewInsets.bottom;
+            final nombre = nameCtrl.text.trim();
+            final puedeGuardar = nombre.isNotEmpty;
+
+            print("DEBUG openMateriaSheet -> puedeGuardar=$puedeGuardar, nombre='$nombre'");
+
+            return SingleChildScrollView(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + bottom),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      height: 4,
+                      width: 44,
+                      decoration: BoxDecoration(
+                        color: textColor.withOpacity(0.3),
+                        borderRadius: BorderRadius.circular(2),
                       ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(
-                          color: textColor.withOpacity(0.3),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Nueva Materia',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 18,
+                        color: textColor,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // ---------- FORMULARIO con TextFormField ----------
+                    Form(
+                      key: formKey,
+                      autovalidateMode: AutovalidateMode.onUserInteraction,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          TextFormField(
+                            controller: nameCtrl,
+                            style: TextStyle(color: textColor),
+                            decoration: InputDecoration(
+                              labelText: 'Nombre de la materia',
+                              labelStyle: TextStyle(color: textColor.withOpacity(0.7)),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              errorStyle: const TextStyle(color: Colors.redAccent, fontSize: 13),
+                            ),
+                            validator: (v) {
+                              final t = (v ?? '').trim();
+                              if (t.isEmpty) {
+                                print("VALIDATOR: nombre vacío");
+                                return 'El nombre de la materia no puede estar vacío';
+                              }
+                              final repetido = _materias.any((m) {
+                                final n = (m['nombre'] as String?) ?? '';
+                                return n.toLowerCase() == t.toLowerCase();
+                              });
+                              if (repetido) {
+                                print("VALIDATOR: nombre repetido -> $t");
+                                return 'Ya existe una materia con ese nombre';
+                              }
+                              return null;
+                            },
+                            onChanged: (_) {
+                              // reiniciamos estado de error local y forzamos re-evaluación del form
+                              setS(() {
+                                errorLocal = false;
+                              });
+                              // opcional: forzar validar automáticamente
+                              formKey.currentState?.validate();
+                            },
+                          ),
+
+                          // fallback: texto rojo manual (por si quieres evitar depender sólo del errorText)
+                          if (errorLocal)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 6, left: 4),
+                              child: Text(
+                                '⚠ Nombre vacío o repetido',
+                                style: TextStyle(
+                                  color: Colors.redAccent,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+
+                    const SizedBox(height: 20),
+
+                    // PALETA DE COLORES (igual)
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Elige un color',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                            color: textColor.withOpacity(0.8),
+                          ),
                         ),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: primary, width: 2),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Elige un color',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                          color: textColor.withOpacity(0.8),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      
-                      ..._paletteOrganizada.asMap().entries.map((entry) {
-                        final index = entry.key;
-                        final colores = entry.value;
-                        
-                        final categorias = [
-                          'Rojos y Rosas',
-                          'Naranjas y Amarillos',
-                          'Verdes',
-                          'Azules',
-                          'Púrpuras y Violetas',
-                          'Neutros',
-                        ];
-                        
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 8, left: 4),
-                                child: Text(
-                                  categorias[index],
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w500,
-                                    color: textColor.withOpacity(0.6),
+                        const SizedBox(height: 12),
+                        ..._paletteOrganizada.asMap().entries.map((entry) {
+                          final index = entry.key;
+                          final colores = entry.value;
+                          final categorias = [
+                            'Rojos y Rosas',
+                            'Naranjas y Amarillos',
+                            'Verdes',
+                            'Azules',
+                            'Púrpuras y Violetas',
+                            'Neutros',
+                          ];
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 16),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 8, left: 4),
+                                  child: Text(
+                                    categorias[index],
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w500,
+                                      color: textColor.withOpacity(0.6),
+                                    ),
                                   ),
                                 ),
-                              ),
-                              
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                                children: colores.map((c) {
-                                  final sel = picked.value == c.value;
-                                  return InkWell(
-                                    onTap: () => setS(() => picked = c),
-                                    borderRadius: BorderRadius.circular(12),
-                                    child: AnimatedContainer(
-                                      duration: const Duration(milliseconds: 200),
-                                      width: sel ? 50 : 44,
-                                      height: sel ? 50 : 44,
-                                      decoration: BoxDecoration(
-                                        color: c,
-                                        borderRadius: BorderRadius.circular(12),
-                                        border: Border.all(
-                                          color: sel ? Colors.white : c.withOpacity(0.3),
-                                          width: sel ? 3 : 2,
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                                  children: colores.map((c) {
+                                    final sel = picked.value == c.value;
+                                    return InkWell(
+                                      onTap: () => setS(() => picked = c),
+                                      borderRadius: BorderRadius.circular(12),
+                                      child: AnimatedContainer(
+                                        duration: const Duration(milliseconds: 200),
+                                        width: sel ? 50 : 44,
+                                        height: sel ? 50 : 44,
+                                        decoration: BoxDecoration(
+                                          color: c,
+                                          borderRadius: BorderRadius.circular(12),
+                                          border: Border.all(
+                                            color: sel ? Colors.white : c.withOpacity(0.3),
+                                            width: sel ? 3 : 2,
+                                          ),
                                         ),
-                                        boxShadow: sel
-                                            ? [
-                                                BoxShadow(
-                                                  color: c.withOpacity(0.5),
-                                                  blurRadius: 12,
-                                                  spreadRadius: 2,
-                                                ),
-                                              ]
-                                            : [
-                                                BoxShadow(
-                                                  color: Colors.black.withOpacity(0.1),
-                                                  blurRadius: 4,
-                                                  offset: const Offset(0, 2),
-                                                ),
-                                              ],
+                                        child: sel
+                                            ? const Icon(Icons.check, color: Colors.white, size: 28)
+                                            : null,
                                       ),
-                                      child: sel
-                                          ? const Icon(
-                                              Icons.check,
-                                              color: Colors.white,
-                                              size: 28,
-                                            )
-                                          : null,
-                                    ),
-                                  );
-                                }).toList(),
-                              ),
-                            ],
-                          ),
-                        );
-                      }).toList(),
-                    ],
-                  ),
-                  
-                  const SizedBox(height: 20),
-                  
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: () => Navigator.pop(ctx),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: primary,
-                            side: BorderSide(color: primary.withOpacity(0.45)),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                          ),
-                          child: const Text(
-                            'Cancelar',
-                            style: TextStyle(fontWeight: FontWeight.w600),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: ElevatedButton(
-                          onPressed: () {
-                            final name = nameCtrl.text.trim();
-                            if (name.isEmpty) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Por favor ingresa un nombre'),
+                                    );
+                                  }).toList(),
                                 ),
-                              );
-                              return;
-                            }
-                            
-                            final materia = {
-                              'id': DateTime.now().microsecondsSinceEpoch.toString(),
-                              'nombre': name,
-                              'color': picked.value,
-                            };
-                            Navigator.pop(ctx);
-                            _addMateria(materia);
-                          },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: primary,
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
+                              ],
                             ),
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            elevation: 2,
-                          ),
-                          child: const Text(
-                            'Guardar',
-                            style: TextStyle(fontWeight: FontWeight.w700),
+                          );
+                        }).toList(),
+                      ],
+                    ),
+
+                    const SizedBox(height: 20),
+
+                    // BOTONES
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.pop(ctx),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: primary,
+                              side: BorderSide(color: primary.withOpacity(0.45)),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                            ),
+                            child: const Text('Cancelar', style: TextStyle(fontWeight: FontWeight.w600)),
                           ),
                         ),
-                      ),
-                    ],
-                  ),
-                ],
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: () async {
+                              // 1) Si el form NO valida, mostramos errorLocal y no cerramos
+                              final ok = formKey.currentState?.validate() ?? false;
+                              print("AL PRESIONAR Guardar -> form valid? $ok");
+                              if (!ok) {
+                                setS(() {
+                                  errorLocal = true;
+                                });
+                                return;
+                              }
+
+                              // 2) si pasa validación, creamos la materia
+                              final nuevaMateria = {
+                                'id': DateTime.now().millisecondsSinceEpoch,
+                                'nombre': nombre,
+                                'color': picked.value,
+                              };
+
+                              print("CREANDO materia -> $nuevaMateria");
+                              await _addMateria(nuevaMateria);
+                              Navigator.pop(ctx);
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: puedeGuardar ? primary : primary.withOpacity(0.4),
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              elevation: 2,
+                            ),
+                            child: const Text('Guardar', style: TextStyle(fontWeight: FontWeight.w700)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
-            ),
-          );
-        });
+            );
+          },
+        );
       },
     );
+
   }
+
 
   Future<void> openDurationSheet() async {
     final themeProvider = Provider.of<ThemeProvider>(context, listen: false);

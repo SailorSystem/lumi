@@ -12,6 +12,9 @@ import '../metodos/flashcards/flashcards_screen.dart';
 import '../metodos/mentalmaps/mentalmaps.screen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'dart:async';
+import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';  
+
 
 class StartScreen extends StatefulWidget {
   final int? idSesion; // ← AHORA RECIBE SOLO EL ID
@@ -55,16 +58,26 @@ class _StartScreenState extends State<StartScreen> {
 
       // obtener nombre del método si existe id_metodo
       if (sesion?.idMetodo != null) {
-        final int metodoId = sesion!.idMetodo!; // asegurar no nulo
-        final metodoRow = await SupabaseService.client
-            .from('metodos')
-            .select()
-            .eq('id_metodo', metodoId)
-            .maybeSingle();
-        if (metodoRow != null) {
-          metodoNombre = (metodoRow['nombre'] ?? '').toString();
+        final int metodoId = sesion!.idMetodo!;
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          final stored = prefs.getStringList('metodos') ?? [];
+          final metodos = stored.map((s) => Map<String, dynamic>.from(json.decode(s))).toList();
+          final m = metodos.firstWhere(
+            (m) => m['id_metodo'] == metodoId,
+            orElse: () => {},
+          );
+          if (m.isNotEmpty) {
+            metodoNombre = (m['nombre'] ?? '').toString();
+          } else {
+            metodoNombre = 'Método $metodoId';
+          }
+        } catch (e) {
+          print('❌ Error obteniendo nombre de método local: $e');
+          metodoNombre = 'Método $metodoId';
         }
       }
+
 
       await _initializeNotifications();
       await _scheduleNotifications();

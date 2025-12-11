@@ -34,6 +34,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
   String phase = "Enfoque";
   int? _sesionRapidaId;
   DateTime? _sesionInicioFecha; // ✅ NUEVA VARIABLE para guardar cuándo inició
+  bool _skipInfoPomodoro = false;
 
   int? duracionEstipulada; // En segundos
   int tiempoTranscurrido = 0; // Tiempo total transcurrido
@@ -45,8 +46,20 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
     super.initState();
     _cargarDuracionEstipulada();
     _crearSesionRapidaSiNoExiste(); // ✅ AGREGAR ESTA LÍNEA
-
+    _cargarPreferenciaInfo();
   }
+
+  Future<void> _cargarPreferenciaInfo() async {
+    final prefs = await SharedPreferences.getInstance();
+    _skipInfoPomodoro = prefs.getBool('skip_info_pomodoro') ?? false;
+    if (!_skipInfoPomodoro && mounted) {
+      // mostrar una sola vez al abrir
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _showInfoDialog(forced: true);
+      });
+    }
+  }
+
     // ✅ AGREGAR: Cargar duración de la sesión
   Future<void> _cargarDuracionEstipulada() async {
     if (widget.idSesion == null) return;
@@ -449,10 +462,12 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
     return "$minutes:$secs";
   }
 
-  void _showInfoDialog() {
+  void _showInfoDialog({bool forced = false}) {
     final tp = Provider.of<ThemeProvider>(context, listen: false);
+
     showDialog(
       context: context,
+      barrierDismissible: !forced, // si es obligado, no se cierra tocando afuera
       builder: (_) => AlertDialog(
         backgroundColor: tp.backgroundColor,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
@@ -472,6 +487,19 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
           style: TextStyle(color: tp.primaryColor, height: 1.4),
         ),
         actions: [
+          if (!_skipInfoPomodoro)        // 👈 solo si aún no lo ha marcado
+            TextButton(
+              onPressed: () async {
+                final prefs = await SharedPreferences.getInstance();
+                await prefs.setBool('skip_info_pomodoro', true);
+                setState(() => _skipInfoPomodoro = true);
+                if (mounted) Navigator.pop(context);
+              },
+              child: Text(
+                "No volver a mostrar",
+                style: TextStyle(color: tp.primaryColor),
+              ),
+            ),
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: Text(
@@ -483,6 +511,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
       ),
     );
   }
+
 
   Future<bool> _confirmarSalida() async {
     final salir = await showDialog<bool>(
