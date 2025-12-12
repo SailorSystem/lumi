@@ -11,6 +11,14 @@ import '../../../core/services/stat_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/services/audio_player_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:file_picker/file_picker.dart';
+import 'dart:convert';
+import '../../../core/models/flashcard.dart'; 
+import 'dart:io';
+import 'package:file_picker/file_picker.dart';
+import '../../../core/services/flashcard_storage_service.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:path_provider/path_provider.dart';
 
 class FlashcardsScreen extends StatefulWidget {
   final int? idSesion;
@@ -18,12 +26,6 @@ class FlashcardsScreen extends StatefulWidget {
 
   @override
   State<FlashcardsScreen> createState() => _FlashcardsScreenState();
-}
-
-class Flashcard {
-  final String front;
-  final String back;
-  Flashcard({required this.front, required this.back});
 }
 
 class _FlashcardsScreenState extends State<FlashcardsScreen> {
@@ -56,6 +58,205 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
     _iniciarContadorTiempo();
     _crearSesionRapidaSiNoExiste();
     _cargarPreferenciaInfo();
+  }
+
+  // -------------------- EXPORTAR / IMPORTAR JSON --------------------
+
+  void _openSaveLoadMenu() {
+    final tp = Provider.of<ThemeProvider>(context, listen: false);
+
+    showDialog(
+      context: context,
+      builder: (_) => Dialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                "Guardar / Cargar tarjetas",
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: tp.primaryColor,
+                ),
+              ),
+              const SizedBox(height: 15),
+              Text(
+                "Elige una opción:",
+                style: TextStyle(color: tp.primaryColor.withOpacity(0.8)),
+              ),
+              const SizedBox(height: 20),
+              ElevatedButton.icon(
+                onPressed: () {
+                  Navigator.pop(context);
+                  _exportFlashcardsWithName("");
+                },
+                icon: Icon(Icons.save, color: Colors.white),
+                label: Text("Exportar a archivo .json"),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: tp.cardColor,
+                  minimumSize: Size(double.infinity, 50),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(15),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              ElevatedButton.icon(
+                onPressed: () {
+                  Navigator.pop(context);
+                  _importFlashcards();
+                },
+                icon: Icon(Icons.upload_file, color: Colors.white),
+                label: Text("Importar archivo .json"),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: tp.cardColor,
+                  minimumSize: Size(double.infinity, 50),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(15),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: Text(
+                  "Cancelar",
+                  style: TextStyle(color: tp.primaryColor),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+
+  void _exportFlashcardsWithName(String filename) async {
+    if (_flashcards.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("No hay tarjetas para exportar")),
+      );
+      return;
+    }
+
+    try {
+      // Si el usuario no escribió nada → generar nombre lumi_XXXX.json
+      if (filename.isEmpty) {
+        final now = DateTime.now();
+        final formatted =
+            "${now.year}-${now.month}-${now.day}_${now.hour}-${now.minute}";
+        filename = "lumi_$formatted";
+      }
+
+      // Asegurar extensión .json
+      if (!filename.endsWith(".json")) {
+        filename = "$filename.json";
+      }
+
+      // Convertir las tarjetas a JSON
+      final jsonStr = jsonEncode(
+        _flashcards.map((c) => c.toJson()).toList(),
+      );
+
+      // Guardar temporalmente
+      final tempDir = await getTemporaryDirectory();
+      final file = File('${tempDir.path}/$filename');
+      await file.writeAsString(jsonStr);
+
+      // Compartir
+      await Share.shareXFiles(
+        [XFile(file.path)],
+        text: "Mis flashcards",
+      );
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Archivo exportado como $filename")),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Error al exportar: $e")),
+      );
+    }
+  }
+
+  void _askFileNameAndExport() {
+    final controller = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        title: Text("Nombre del archivo"),
+        content: TextField(
+          controller: controller,
+          decoration: InputDecoration(
+            hintText: "Ejemplo: mis_tarjetas",
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text("Cancelar"),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _exportFlashcardsWithName(controller.text.trim());
+            },
+            child: Text("Guardar"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _exportFlashcards() async {
+    final jsonStr = jsonEncode(_flashcards.map((c) => c.toJson()).toList());
+
+    final file = await FilePicker.platform.saveFile(
+      dialogTitle: 'Guardar tarjetas',
+      fileName: 'flashcards.json',
+    );
+
+    if (file != null) {
+      await File(file).writeAsString(jsonStr);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Tarjetas guardadas correctamente")),
+      );
+    }
+  }
+
+  void _importFlashcards() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['json'],
+    );
+
+    if (result == null) return;
+
+    final file = File(result.files.single.path!);
+    final content = await file.readAsString();
+    final decoded = jsonDecode(content);
+
+    setState(() {
+      _flashcards.clear();
+      _flashcards.addAll(
+        (decoded as List).map((e) => Flashcard.fromJson(e)).toList(),
+      );
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text("Tarjetas cargadas correctamente")),
+    );
   }
 
   
@@ -1346,7 +1547,27 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
                 ),
               ),
             ),
-            const SizedBox(height: 32),
+            const SizedBox(height: 16),
+            // BOTÓN UNIFICADO GUARDAR/CARGAR
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _openSaveLoadMenu,
+                icon: Icon(Icons.folder, color: tp.primaryColor),
+                label: Text(
+                  "Guardar / Cargar tarjetas",
+                  style: TextStyle(color: tp.primaryColor, fontWeight: FontWeight.w700),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: btnBg,
+                  padding: const EdgeInsets.symmetric(vertical: 18),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  elevation: 0,
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+
             // Info pequeño
             Text('Consejo: toma descansos cortos y enfocados.', style: TextStyle(color: tp.primaryColor.withOpacity(0.7))),
             const SizedBox(height: 40),
@@ -1431,6 +1652,7 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
           actions: [
             IconButton(icon: Icon(Icons.info_outline, color: tp.primaryColor), onPressed: _showInfoDialog),
           ],
+        
           flexibleSpace: Container(
             decoration: BoxDecoration(
               gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: colors, stops: const [0.0, 0.35, 1.0]),

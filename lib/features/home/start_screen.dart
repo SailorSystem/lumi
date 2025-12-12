@@ -231,72 +231,167 @@ class _StartScreenState extends State<StartScreen> {
       body: SafeArea(
         child: Center(
           child: Container(
-            constraints: const BoxConstraints(maxWidth: 420),
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 28),
+            constraints: const BoxConstraints(maxWidth: 480),
+            padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 32),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  '¿Desea iniciar?',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
-                    color: primary,
+                /// HEADER DECORATIVO
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(28),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: colors,
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(24),
+                    boxShadow: [
+                      BoxShadow(
+                        color: primary.withOpacity(0.12),
+                        blurRadius: 12,
+                        offset: const Offset(0, 5),
+                      )
+                    ],
                   ),
-                  textAlign: TextAlign.center,
+                  child: Column(
+                    children: [
+                      Icon(Icons.school,
+                          size: 62, color: primary.withOpacity(0.9)),
+                      const SizedBox(height: 10),
+                      Text(
+                        'Prepárate para tu sesión',
+                        style: TextStyle(
+                          color: primary,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Organiza tu energía y comienza cuando estés listo.',
+                        style: TextStyle(
+                          color: primary.withOpacity(0.8),
+                          fontSize: 13,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 18),
-                Text(
-                  'Método: $showName',
-                  style: TextStyle(fontSize: 14, color: primary.withOpacity(0.9)),
-                ),
-                const SizedBox(height: 20),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    SizedBox(
-                      width: 140,
-                      height: 48,
-                      child: ElevatedButton.icon(
-                        onPressed: (sesion!.idMetodo != null) ? startSession : null,
-                        icon: Icon(Icons.play_arrow, size: 20, color: Colors.white),
-                        label: Text('Sí', style: const TextStyle(color: Colors.white)),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: primary,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(28),
-                          ),
-                          textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+
+                const SizedBox(height: 32),
+
+                /// TARJETA PRINCIPAL
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 24),
+                  decoration: BoxDecoration(
+                    color: tp.cardColor,
+                    borderRadius: BorderRadius.circular(24),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.05),
+                        blurRadius: 8,
+                        offset: const Offset(0, 4),
+                      )
+                    ],
+                  ),
+                  child: Column(
+                    children: [
+                      Text(
+                        '¿Desea iniciar la sesión?',
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w700,
+                          color: primary,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 12),
+
+                      /// MÉTODO
+                      Text(
+                        'Método seleccionado:',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: primary.withOpacity(0.7),
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 16),
-                    SizedBox(
-                      width: 140,
-                      height: 48,
-                      child: OutlinedButton.icon(
-                        onPressed: () => Navigator.pop(context),
-                        icon: Icon(Icons.close, size: 20, color: primary),
-                        label: Text('No', style: TextStyle(color: primary)),
-                        style: OutlinedButton.styleFrom(
-                          backgroundColor: tp.isDarkMode ? tp.cardColor : Colors.white,
-                          foregroundColor: primary,
-                          side: BorderSide(color: primary.withOpacity(0.18)),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(28),
-                          ),
-                          textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                      const SizedBox(height: 4),
+                      Text(
+                        showName,
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                          color: primary,
+                          letterSpacing: 0.4,
                         ),
                       ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  'Hora: $hora',
-                  style: TextStyle(fontSize: 13, color: primary.withOpacity(0.9)),
-                ),
+
+                      const SizedBox(height: 20),
+
+                      /// BOTONES
+                      Row(
+                        children: [
+                          Expanded(
+                            child: SizedBox(
+                              height: 48,
+                              child: ElevatedButton.icon(
+                                onPressed: (sesion!.idMetodo != null) ? startSession : null,
+                                icon: Icon(Icons.play_arrow, size: 20, color: Colors.white),
+                                label: Text('Sí', style: const TextStyle(color: Colors.white)),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: primary,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(28),
+                                  ),
+                                  textStyle: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: SizedBox(
+                              height: 48,
+                              child: OutlinedButton.icon(
+                                onPressed: () => Navigator.pop(context),
+                                icon: Icon(Icons.close, size: 20, color: primary),
+                                label: Text('No', style: TextStyle(color: primary)),
+                                style: OutlinedButton.styleFrom(
+                                  backgroundColor: tp.isDarkMode ? tp.cardColor : Colors.white,
+                                  side: BorderSide(color: primary.withOpacity(0.18)),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(28),
+                                  ),
+                                  textStyle: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+
+                      const SizedBox(height: 18),
+
+                      /// HORA
+                      Text(
+                        'Hora: $hora',
+                        style: TextStyle(
+                            fontSize: 13, color: primary.withOpacity(0.8)),
+                      ),
+                    ],
+                  ),
+                )
               ],
             ),
           ),

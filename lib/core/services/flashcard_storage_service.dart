@@ -1,20 +1,16 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../core/models/flashcard.dart';
+import '../models/flashcard.dart';
 
 class FlashcardStorageService {
   static const String setsKey = "flashcard_sets_list";
 
-  /// Guarda un set de flashcards bajo un nombre dado
   static Future<void> saveSet(String name, List<Flashcard> cards) async {
     final prefs = await SharedPreferences.getInstance();
-
-    // 1. Guardar lista individual
     final key = "flashcards_set_$name";
     final jsonList = cards.map((c) => c.toJson()).toList();
     await prefs.setString(key, jsonEncode(jsonList));
 
-    // 2. Registrar en la lista de sets guardados
     final listString = prefs.getString(setsKey);
     List<String> sets = listString != null ? List<String>.from(jsonDecode(listString)) : [];
 
@@ -24,19 +20,15 @@ class FlashcardStorageService {
     }
   }
 
-  /// Cargar un set de flashcards según su nombre
   static Future<List<Flashcard>> loadSet(String name) async {
     final prefs = await SharedPreferences.getInstance();
     final key = "flashcards_set_$name";
     final data = prefs.getString(key);
-
     if (data == null) return [];
-
     final decoded = jsonDecode(data);
     return (decoded as List).map((e) => Flashcard.fromJson(e)).toList();
   }
 
-  /// Devuelve todos los nombres de sets guardados
   static Future<List<String>> loadAvailableSets() async {
     final prefs = await SharedPreferences.getInstance();
     final data = prefs.getString(setsKey);
@@ -44,7 +36,6 @@ class FlashcardStorageService {
     return List<String>.from(jsonDecode(data));
   }
 
-  /// Eliminar un set completamente
   static Future<void> deleteSet(String name) async {
     final prefs = await SharedPreferences.getInstance();
     final key = "flashcards_set_$name";

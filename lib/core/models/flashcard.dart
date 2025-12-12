@@ -1,18 +1,18 @@
 /// lib/core/models/flashcard.dart
 class Flashcard {
-  final String id;
+  String? id; // ahora opcional
   String front;
   String back;
 
   Flashcard({
-    required this.id,
+    this.id,
     required this.front,
     required this.back,
   });
 
   factory Flashcard.fromJson(Map<String, dynamic> json) {
     return Flashcard(
-      id: json['id'],
+      id: json['id'], // puede venir o no
       front: json['front'],
       back: json['back'],
     );

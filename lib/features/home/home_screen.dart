@@ -3,6 +3,7 @@
 import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:async';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -1100,70 +1101,92 @@ Future<void> _refreshSessions() async {
 
     return ClipRRect(
       borderRadius: const BorderRadius.only(
-        bottomLeft: Radius.circular(50),
-        bottomRight: Radius.circular(50),
+        bottomLeft: Radius.circular(40),
+        bottomRight: Radius.circular(40),
       ),
       child: Container(
         width: double.infinity,
-        padding: const EdgeInsets.fromLTRB(16, 90, 16, 30),
+        padding: const EdgeInsets.fromLTRB(16, 100, 16, 40),
         decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
             colors: isDark
-                ? [const Color(0xFF212C36), const Color(0xFF313940), themeProvider.backgroundColor]
-                : [const Color(0xFFB6C9D6), const Color(0xFFE6DACA), themeProvider.backgroundColor],
+                ? [
+                    const Color(0xFF212C36),
+                    const Color(0xFF313940),
+                    themeProvider.backgroundColor,
+                  ]
+                : [
+                    const Color(0xFFBCAEDC),       // lavanda suave
+                    const Color(0xFFE6DACA).withOpacity(0.25), // tierra suave
+                    themeProvider.backgroundColor,
+                  ],
             stops: const [0.0, 0.35, 1.0],
           ),
         ),
         child: Column(
           children: [
-            // tarjeta centrada
-            Container(
-              width: 420,
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: isDark
-                    ? Colors.white.withOpacity(0.08)
-                    : const Color(0xFFC6905B).withOpacity(0.20),
-                borderRadius: BorderRadius.circular(22),
-                border: Border.all(
-                  color: isDark
-                      ? Colors.white.withOpacity(0.1)
-                      : Colors.black.withOpacity(0.05),
-                  width: 1,
-                ),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Lumi centrado y más grande
-                  LumiChar(
-                    size: 96,
-                    estadoAnimo: _estadoAnimo,
-                    onMessage: (msg) {
-                      setState(() {
-                        _quote = msg;
-                        _showQuote = true;
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 8),
-                  // texto base siempre igual al abrir
-                  Text(
-                    'Me llamo Lumi ✨',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      color: isDark ? Colors.white.withOpacity(0.95) : Colors.white,
+            ClipRRect(
+              borderRadius: BorderRadius.circular(26),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeOutQuad,
+                  width: 420,
+                  padding: const EdgeInsets.all(22),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? Colors.white.withOpacity(0.05)
+                        : const Color(0xFFC6905B).withOpacity(0.25), // tierra suave
+                    borderRadius: BorderRadius.circular(26),
+                    boxShadow: [
+                      BoxShadow(
+                        color: isDark
+                            ? Colors.black.withOpacity(0.15)
+                            : Colors.black.withOpacity(0.08), // sombra ligera
+                        blurRadius: 12,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                    border: Border.all(
+                      color: isDark
+                          ? Colors.white.withOpacity(0.05)
+                          : Colors.black.withOpacity(0.08), // borde sutil
                     ),
                   ),
-                  const SizedBox(height: 6),
-                  // burbuja de frase centrada
-                  if (_showQuote)
-                    _motivationalBubbleCentered(isDark, themeProvider),
-                ],
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      LumiChar(
+                        size: 90,
+                        estadoAnimo: _estadoAnimo,
+                        onMessage: (msg) {
+                          setState(() {
+                            _quote = msg;
+                            _showQuote = true;
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Me llamo Lumi ✨',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.w700,
+                          color: isDark
+                              ? Colors.white.withOpacity(0.9)
+                              : Colors.black.withOpacity(0.8), // gris neutro
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      if (_showQuote)
+                        _motivationalBubbleCentered(isDark, themeProvider),
+                    ],
+                  ),
+                ),
               ),
             ),
           ],
@@ -1321,63 +1344,123 @@ Future<void> _refreshSessions() async {
   // ------------------------- ITEM DE SESIÓN -------------------------
   Widget _sessionTile(BuildContext context, Sesion session) {
     final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
-    final textColor = Theme.of(context).textTheme.bodyLarge?.color;
+    final textColor = Theme.of(context).textTheme.bodyLarge?.color ?? Colors.black;
+    final primary = themeProvider.primaryColor;
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: Colors.blueGrey.withOpacity(0.25),
-          child: Icon(Icons.access_time, color: textColor, size: 22),
-        ),
-        title: Text(
-          session.nombreSesion,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              '${session.fecha.day.toString().padLeft(2, '0')}/'
-              '${session.fecha.month.toString().padLeft(2, '0')}/'
-              '${session.fecha.year}',
-              style: TextStyle(color: textColor, fontSize: 12),
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: themeProvider.cardColor,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: primary.withOpacity(0.12), width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 14,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+
+      // Usamos Row completo para controlar espacio
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        mainAxisAlignment: MainAxisAlignment.start,
+        children: [
+          // ------------------ ICONO ------------------
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: primary.withOpacity(0.12),
+              shape: BoxShape.circle,
             ),
-            Text(
-              '${session.fecha.hour.toString().padLeft(2, '0')}:'
-              '${session.fecha.minute.toString().padLeft(2, '0')}',
-              style: TextStyle(color: textColor, fontSize: 12),
+            child: Icon(Icons.event, color: primary, size: 22),
+          ),
+
+          const SizedBox(width: 12),
+
+          // ------------------ TÍTULO + FECHA + HORA (ÁREA FLEXIBLE) ------------------
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // título
+                Text(
+                  session.nombreSesion,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 15,
+                    color: textColor,
+                  ),
+                ),
+
+                const SizedBox(height: 4),
+
+                // fecha y hora en una línea flexible
+                Row(
+                  children: [
+                    Icon(Icons.calendar_today, size: 14, color: textColor.withOpacity(0.6)),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        '${session.fecha.day.toString().padLeft(2, '0')}/'
+                        '${session.fecha.month.toString().padLeft(2, '0')}/'
+                        '${session.fecha.year}',
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: 12, color: textColor.withOpacity(0.75)),
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 2),
+
+                Row(
+                  children: [
+                    Icon(Icons.access_time, size: 14, color: textColor.withOpacity(0.6)),
+                    const SizedBox(width: 4),
+                    Text(
+                      '${session.fecha.hour.toString().padLeft(2, '0')}:'
+                      '${session.fecha.minute.toString().padLeft(2, '0')}',
+                      style: TextStyle(fontSize: 12, color: textColor.withOpacity(0.75)),
+                    ),
+                  ],
+                ),
+              ],
             ),
-          ],
-        ),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            IconButton(
-              icon: const Icon(Icons.edit, color: Colors.blue, size: 18),
-              onPressed: () => _editarSesionModal(session),
-              tooltip: 'Editar',
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+          ),
+
+          const SizedBox(width: 6),
+
+          // ------------------ BOTONES (ANCHO FIJO) ------------------
+          SizedBox(
+            width: 100, // 🔥 clave para evitar overflow
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                // Editar
+                IconButton(
+                  icon: Icon(Icons.edit, color: primary, size: 20),
+                  onPressed: () => _editarSesionModal(session),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                ),
+
+                // Eliminar
+                IconButton(
+                  icon: const Icon(Icons.delete, color: Colors.red, size: 20),
+                  onPressed: () => _eliminarSesion(session),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                ),
+              ],
             ),
-            IconButton(
-              icon: const Icon(Icons.delete, color: Colors.red, size: 18),
-              onPressed: () => _eliminarSesion(session),
-              tooltip: 'Eliminar',
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
-            ),
-          ],
-        ),
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => StartScreen(idSesion: session.idSesion),
-            ),
-          );
-        },
+          ),
+        ],
       ),
     );
   }
