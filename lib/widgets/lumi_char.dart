@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 
 import '../../core/services/mood_service.dart';
 import '../../core/services/audio_player_service.dart'; // 🔊 Reproductor controlado
-import '../../core/services/sound_service.dart';       // 🔇 Estado global del sonido
 
 class LumiChar extends StatefulWidget {
   final double size;

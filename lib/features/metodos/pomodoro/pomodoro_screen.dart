@@ -9,7 +9,6 @@ import '../../../core/services/mood_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/services/stat_service.dart'; 
 import '../../../core/models/sesion.dart';
-import '../../../core/services/audio_player_service.dart';
 
 class PomodoroScreen extends StatefulWidget {
   final int? idSesion; // ✅ AGREGADO
@@ -32,10 +31,11 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
   int completedCycles = 0;
   bool isRunning = false;
   String phase = "Enfoque";
+  String _previousPhase = "Enfoque";
   int? _sesionRapidaId;
   DateTime? _sesionInicioFecha; // ✅ NUEVA VARIABLE para guardar cuándo inició
   bool _skipInfoPomodoro = false;
-
+  bool _isShowingError = false; // 🚨 Flag para evitar mensajes repetidos
   int? duracionEstipulada; // En segundos
   int tiempoTranscurrido = 0; // Tiempo total transcurrido
   bool tiempoEstipuladoCumplido = false;
@@ -59,6 +59,61 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
       });
     }
   }
+
+  void _showPhaseDisabledMessage(String buttonPhase) {
+    if (_isShowingError) return; // ya se está mostrando
+
+    _isShowingError = true;
+    final msg = _getPhaseDisabledMessage(buttonPhase);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg, style: const TextStyle(color: Colors.white)),
+        backgroundColor: Colors.redAccent,
+        duration: const Duration(seconds: 2),
+      ),
+    );
+
+    // Reset flag después de que el SnackBar desaparece
+    Future.delayed(const Duration(seconds: 2), () {
+      _isShowingError = false;
+    });
+  }
+
+  bool _canGoToPhase(String buttonPhase) {
+    switch (phase) {
+      case "Enfoque":
+        return buttonPhase == "Descanso Corto" || (completedCycles % 4 == 0 && buttonPhase == "Descanso Largo");
+      case "Descanso Corto":
+        return buttonPhase == "Enfoque";
+      case "Descanso Largo":
+        return buttonPhase == "Enfoque";
+      default:
+        return false;
+    }
+  }
+
+  void _onPhaseButtonPressed(String buttonPhase, int buttonTime) async {
+    if (phase == buttonPhase) return; // ya está en esa fase
+
+    // Verificar si puede ir a esa fase según la lógica del ciclo
+    if (_canChangePhase(buttonPhase)) {
+      // Mostrar diálogo de confirmación si el temporizador está corriendo
+      await _onChangePhase(buttonPhase, buttonTime);
+    } else {
+      // Mostrar mensaje de retroalimentación
+      final msg = _getPhaseDisabledMessage(buttonPhase);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(msg, style: const TextStyle(color: Colors.white)),
+          backgroundColor: Colors.redAccent,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
+
 
     // ✅ AGREGAR: Cargar duración de la sesión
   Future<void> _cargarDuracionEstipulada() async {
@@ -84,33 +139,17 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
   void startTimer() {
     if (isRunning) return;
 
-    setState(() {
-      isRunning = true;
-    });
+    setState(() => isRunning = true);
 
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       setState(() {
         if (remainingTime > 0) {
           remainingTime--;
-          
-          // ✅ Solo contar durante la fase de "Enfoque"
-          if (phase == "Enfoque") {
-            tiempoTranscurrido++;
-            
-            // Verificar si se cumplió el tiempo estipulado
-            if (!tiempoEstipuladoCumplido && 
-                duracionEstipulada != null && 
-                tiempoTranscurrido >= duracionEstipulada!) {
-              tiempoEstipuladoCumplido = true;
-              pauseTimer(); // ✅ Pausar el timer
-              _playSound(); 
-              _mostrarDialogoTiempoCumplido();
-            }
-          }
+          if (phase == "Enfoque") tiempoTranscurrido++;
         } else {
           timer.cancel();
-          _playSound();
-          _handlePhaseCompletion();
+          isRunning = false;
+          _handlePhaseCompletion(); // transición automática
         }
       });
     });
@@ -422,6 +461,9 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
 
 
   void _handlePhaseCompletion() {
+    _playSound(); // sonar al finalizar fase
+
+    // Determinar siguiente fase
     setState(() {
       if (phase == "Enfoque") {
         completedCycles++;
@@ -433,12 +475,17 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
           remainingTime = shortBreak;
         }
       } else {
+        // Si estaba en descanso corto o largo
         phase = "Enfoque";
         remainingTime = studyTime;
       }
     });
-    startTimer();
+
+    // Mostrar diálogo indicando fase siguiente
+    _showPhaseDialog();
   }
+
+
 
   void pauseTimer() {
     if (isRunning) {
@@ -569,14 +616,210 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
     return salir == true;
   }
 
-
-
-
   @override
   void dispose() {
     _timer?.cancel();
     _player.dispose();
     super.dispose();
+  }
+
+  Color _getPhaseButtonColor(String buttonPhase) {
+    final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
+    final primary = themeProvider.primaryColor;
+
+    if (phase == buttonPhase) return primary; // fase actual
+
+    // Usar la lógica real de cambio de fase
+    if (_canChangePhase(buttonPhase)) return Colors.orange; // siguiente fase lógica
+    return Colors.grey; // bloqueada
+  }
+
+
+
+  Future<void> _showPhaseDialog() async {
+    final tp = Provider.of<ThemeProvider>(context, listen: false);
+
+    String message;
+    if (phase == "Enfoque") {
+      message = "¡Hora de enfocarte! Comienza tu sesión de ${studyTime ~/ 60} minutos.";
+    } else if (phase == "Descanso Corto") {
+      message = "¡Tiempo de descanso corto! Relájate por ${shortBreak ~/ 60} minutos.";
+    } else {
+      message = "¡Tiempo de descanso largo! Relájate por ${longBreak ~/ 60} minutos.";
+    }
+
+
+    final continuar = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(
+        backgroundColor: tp.cardColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text(
+          phase,
+          style: TextStyle(color: tp.primaryColor, fontWeight: FontWeight.bold),
+        ),
+        content: Text(message, style: TextStyle(color: tp.primaryColor)),
+        actions: [
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text("Iniciar"),
+          ),
+        ],
+      ),
+    );
+
+    if (continuar == true) {
+      startTimer(); // iniciar la fase automáticamente
+    }
+  }
+
+  Future<void> _onChangePhase(String newPhase, int newTime) async {
+    if (!_canChangePhase(newPhase)) {
+      final tp = Provider.of<ThemeProvider>(context, listen: false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            "No puedes ir a $newPhase todavía. Debes seguir el ciclo correcto.",
+            style: const TextStyle(color: Colors.white),
+          ),
+          backgroundColor: Colors.redAccent,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    // Confirmación si el temporizador está activo
+    if (isRunning) {
+      final confirm = await _showConfirmDialog(newPhase);
+      if (confirm != true) return;
+      pauseTimer();
+    }
+
+    // Cambiar fase
+    setState(() {
+      phase = newPhase;
+      remainingTime = newTime;
+
+      if (newPhase == "Enfoque" && _previousPhase == "Descanso Corto") {
+        completedCycles++;
+      }
+
+      _previousPhase = newPhase;
+    });
+
+    // Mostrar diálogo de fase siempre
+    await _showPhaseDialog();
+  }
+
+  // Método helper para el diálogo de confirmación
+  Future<bool?> _showConfirmDialog(String newPhase) {
+    final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
+    String message = "";
+    if (newPhase == "Enfoque") {
+      message = "¡Hora de enfocarte! Comienza tu sesión de estudio.";
+    } else if (newPhase == "Descanso Corto") {
+      message = "¡Tiempo de descanso corto! Relájate un momento.";
+    } else {
+      message = "¡Tiempo de descanso largo! Relájate más tiempo.";
+    }
+
+    return showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: themeProvider.cardColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text(
+          "¿Cambiar fase a $newPhase?",
+          style: TextStyle(color: themeProvider.primaryColor, fontWeight: FontWeight.bold),
+        ),
+        content: Text(
+          "El Pomodoro está activo.\n\n$message\n\n¿Deseas terminar la fase actual y pasar a $newPhase?",
+          style: TextStyle(color: themeProvider.primaryColor),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text("Cancelar", style: TextStyle(color: themeProvider.primaryColor)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text("Confirmar"),
+          ),
+        ],
+      ),
+    );
+  }
+
+
+
+
+
+  bool _canChangePhase(String newPhase) {
+    // Primera fase obligatoria
+    if (completedCycles == 0 && phase != "Enfoque" && newPhase != "Enfoque") {
+      return false; // No permite ir a descanso al inicio
+    }
+
+    switch (phase) {
+      case "Enfoque":
+        // Solo puede ir a descanso corto siempre o descanso largo solo si completó 4 ciclos
+        if (newPhase == "Descanso Corto") return true;
+        if (completedCycles > 0 && completedCycles % 4 == 0 && newPhase == "Descanso Largo") return true;
+        return false;
+      case "Descanso Corto":
+      case "Descanso Largo":
+        return newPhase == "Enfoque";
+      default:
+        return false;
+    }
+  }
+
+
+
+  Widget _actionButton(String text, VoidCallback onPressed) {
+    final canPress = _canChangePhase(text);
+    final color = _getPhaseButtonColor(text);
+    
+    return ElevatedButton(
+      onPressed: canPress
+          ? onPressed
+          : () => _showPhaseDisabledMessage(text),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: color,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        elevation: 0,
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+
+  String _getPhaseDisabledMessage(String buttonPhase) {
+    switch (phase) {
+      case "Enfoque":
+        if (buttonPhase == "Descanso Largo") return "No puedes tomar descanso largo aún. Completa 4 ciclos de enfoque primero.";
+        break;
+      case "Descanso Corto":
+        if (buttonPhase == "Descanso Largo") return "Debes volver a Enfoque antes de tomar descanso largo.";
+        if (buttonPhase == "Descanso Corto") return "Ya estás en descanso corto.";
+        break;
+      case "Descanso Largo":
+        if (buttonPhase != "Enfoque") return "Después del descanso largo debes volver a Enfoque.";
+        break;
+    }
+    return "No puedes ir a $buttonPhase en este momento.";
   }
 
   @override
@@ -685,30 +928,15 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
 
                 const SizedBox(height: 60),
 
-                // Botones de fase
+                // ----------------- BOTONES DE FASE -----------------
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    _actionButton("Enfoque", () {
-                      setState(() {
-                        phase = "Enfoque";
-                        remainingTime = studyTime;
-                      });
-                    }),
+                    _actionButton("Enfoque", () => _onPhaseButtonPressed("Enfoque", studyTime)),
                     const SizedBox(width: 10),
-                    _actionButton("Desc. Corto", () {
-                      setState(() {
-                        phase = "Descanso Corto";
-                        remainingTime = shortBreak;
-                      });
-                    }),
+                    _actionButton("Descanso Corto", () => _onPhaseButtonPressed("Descanso Corto", shortBreak)),
                     const SizedBox(width: 10),
-                    _actionButton("Desc. Largo", () {
-                      setState(() {
-                        phase = "Descanso Largo";
-                        remainingTime = longBreak;
-                      });
-                    }),
+                    _actionButton("Descanso Largo", () => _onPhaseButtonPressed("Descanso Largo", longBreak)),
                   ],
                 ),
 
@@ -766,31 +994,6 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
           ],
         ),
       ],
-    );
-  }
-
-  Widget _actionButton(String text, VoidCallback onPressed) {
-    final themeProvider = Provider.of<ThemeProvider>(context);
-    final primary = themeProvider.primaryColor;
-    final btnBg = themeProvider.isDarkMode
-        ? themeProvider.cardColor
-        : Colors.white.withOpacity(0.7);
-    
-    return ElevatedButton(
-      onPressed: onPressed,
-      style: ElevatedButton.styleFrom(
-        backgroundColor: btnBg,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        elevation: 0,
-      ),
-      child: Text(
-        text,
-        style: TextStyle(
-          color: primary,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
     );
   }
 

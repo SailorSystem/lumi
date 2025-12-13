@@ -29,7 +29,6 @@ import 'firstre_screen.dart';
 import '../../core/services/notification_service.dart';
 import '../../core/services/usage_tracker.dart';
 import '../../core/services/stats_usage_service.dart';
-import 'crear_sesion_screen.dart';
 import '../../widgets/no_connection_dialog.dart';
 
 
@@ -782,100 +781,7 @@ Future<void> _refreshSessions() async {
             onPressed: () => Navigator.push(context,
                 MaterialPageRoute(builder: (_) => const StatsScreen())),
           ),
-          // ✅ TEMPORAL: Botón para probar notificaciones
-          // ✅ Botón de prueba de notificación (con protección de crashes)
-          /*IconButton(
-            icon: const Icon(Icons.notifications_active, color: Colors.orange),
-            tooltip: 'Probar notificación',
-            onPressed: () async {
-              try {
-                final ahora = DateTime.now();
-                final testDate = ahora.add(const Duration(seconds: 10));
-                
-                print('🧪 ==== PRUEBA DE NOTIFICACIÓN ====');
-                print('   - Ahora: $ahora');
-                print('   - Fecha test: $testDate');
-                
-                final exito = await NotificationService.programarNotificacionInicio(
-                  idSesion: 99999,
-                  nombreSesion: 'Prueba de Notificación',
-                  fechaSesion: testDate,
-                );
-                
-                if (exito) {
-                  await NotificationService.listarPendientes();
-                  
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('⏰ Notificación de prueba en 10 segundos'),
-                        duration: Duration(seconds: 3),
-                        backgroundColor: Colors.green,
-                      ),
-                    );
-                  }
-                } else {
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('❌ Error programando notificación'),
-                        duration: Duration(seconds: 3),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                  }
-                }
-                
-                print('🧪 ================================');
-              } catch (e, stackTrace) {
-                print('❌ CRASH en botón de prueba: $e');
-                print('Stack trace: $stackTrace');
-                
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Error: ${e.toString().substring(0, 50)}'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                }
-              }
-            },
-          ),*/
-
-          // TEMPORAL: Botón para probar tracking
-          /*IconButton(
-            icon: const Icon(Icons.timer, color: Colors.blue),
-            tooltip: 'Probar tracking',
-            onPressed: () async {
-              final prefs = await SharedPreferences.getInstance();
-              final userId = prefs.getInt('user_id');
-              
-              if (userId != null) {
-                final exito = await StatsUsageService.incrementarTiempoUso(userId, 10);
-                
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        exito 
-                          ? '✅ 10 segundos agregados' 
-                          : '❌ Error al agregar tiempo'
-                      ),
-                      backgroundColor: exito ? Colors.green : Colors.red,
-                    ),
-                  );
-                }
-                
-                // Mostrar tiempo total
-                final tiempoTotal = await StatsUsageService.obtenerTiempoUso(userId);
-                print('⏱️ Tiempo total: ${StatsUsageService.formatearTiempo(tiempoTotal)}');
-              }
-            },
-          ),*/
-
-
-
+ 
           IconButton(
             icon: Icon(Icons.settings, color: themeProvider.primaryColor),
             onPressed: () async {
@@ -1524,3 +1430,4 @@ Future<void> _refreshSessions() async {
     }
   }
 }
+

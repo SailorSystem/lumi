@@ -1,21 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
-import '../../core/models/sesion.dart';
-import '../../core/services/sesion_service.dart';
 import '../../core/providers/theme_provider.dart';
-
-// IMPORTS REALES SEGÚN TU RUTA
 import '../../features/metodos/pomodoro/pomodoro_screen.dart';
 import '../../features/metodos/flashcards/flashcards_screen.dart';
 import '../../features/metodos/mentalmaps/mentalmaps.screen.dart';
-
-import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
-import 'package:provider/provider.dart';
-import '../../core/providers/theme_provider.dart';
 
 
 class SesionRapidaScreen extends StatefulWidget {
@@ -269,9 +259,9 @@ class _SesionRapidaScreenState extends State<SesionRapidaScreen> {
                                         style: TextStyle(
                                           fontSize: 13,
                                           color: textColor.withOpacity(0.7),
+                                          height: 1.35, // 👈 mejora la legibilidad
                                         ),
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
+                                        softWrap: true,
                                       ),
                                     ],
                                   ),

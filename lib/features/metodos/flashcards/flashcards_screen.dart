@@ -46,6 +46,7 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
   int? _sesionRapidaId;
   DateTime? _sesionInicioFecha;
   bool _skipInfoFlashcards = false;
+  late List<Flashcard> _originalDeck;
 
   // Descanso
   int _restSeconds = 0;
@@ -58,6 +59,7 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
     _iniciarContadorTiempo();
     _crearSesionRapidaSiNoExiste();
     _cargarPreferenciaInfo();
+    _originalDeck = List.from(_flashcards);
   }
 
   // -------------------- EXPORTAR / IMPORTAR JSON --------------------
@@ -69,64 +71,130 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
       context: context,
       builder: (_) => Dialog(
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(22),
         ),
         child: Padding(
           padding: const EdgeInsets.all(20),
           child: Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // ---------- TÍTULO ----------
               Text(
-                "Guardar / Cargar tarjetas",
+                "Tarjetas de estudio",
                 style: TextStyle(
                   fontSize: 20,
-                  fontWeight: FontWeight.bold,
+                  fontWeight: FontWeight.w700,
                   color: tp.primaryColor,
                 ),
               ),
-              const SizedBox(height: 15),
+
+              const SizedBox(height: 6),
+
+              // ---------- DESCRIPCIÓN ÚNICA ----------
               Text(
-                "Elige una opción:",
-                style: TextStyle(color: tp.primaryColor.withOpacity(0.8)),
+                "Guarda tus tarjetas para usarlas más tarde o cárgalas desde un archivo.",
+                style: TextStyle(
+                  fontSize: 14,
+                  color: tp.primaryColor.withOpacity(0.75),
+                ),
               ),
+
               const SizedBox(height: 20),
+
+              // ---------- GUARDAR ----------
               ElevatedButton.icon(
                 onPressed: () {
                   Navigator.pop(context);
                   _exportFlashcardsWithName("");
                 },
-                icon: Icon(Icons.save, color: Colors.white),
-                label: Text("Exportar a archivo .json"),
+                icon: Icon(
+                  Icons.download_rounded,
+                  color: tp.primaryColor,
+                ),
+                label: Text(
+                  "Guardar tarjetas",
+                  style: TextStyle(
+                    color: tp.primaryColor,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: tp.cardColor,
-                  minimumSize: Size(double.infinity, 50),
+                  elevation: 0,
+                  minimumSize: const Size(double.infinity, 52),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(15),
+                    borderRadius: BorderRadius.circular(16),
                   ),
                 ),
               ),
-              const SizedBox(height: 10),
+
+              const SizedBox(height: 12),
+
+              // ---------- CARGAR ----------
               ElevatedButton.icon(
                 onPressed: () {
                   Navigator.pop(context);
                   _importFlashcards();
                 },
-                icon: Icon(Icons.upload_file, color: Colors.white),
-                label: Text("Importar archivo .json"),
+                icon: Icon(
+                  Icons.folder_open_rounded,
+                  color: tp.primaryColor,
+                ),
+                label: Text(
+                  "Cargar tarjetas",
+                  style: TextStyle(
+                    color: tp.primaryColor,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: tp.cardColor,
-                  minimumSize: Size(double.infinity, 50),
+                  elevation: 0,
+                  minimumSize: const Size(double.infinity, 52),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(15),
+                    borderRadius: BorderRadius.circular(16),
                   ),
                 ),
               ),
-              const SizedBox(height: 10),
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: Text(
-                  "Cancelar",
-                  style: TextStyle(color: tp.primaryColor),
+
+              const SizedBox(height: 14),
+
+              // ---------- INFO SUTIL ----------
+              Row(
+                children: [
+                  Icon(
+                    Icons.info_outline_rounded,
+                    size: 16,
+                    color: tp.primaryColor.withOpacity(0.5),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      "El archivo es solo de texto (.json). No se ejecuta ni instala nada.",
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: tp.primaryColor.withOpacity(0.55),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 16),
+
+              // ---------- CANCELAR ----------
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: Text(
+                    "Cancelar",
+                    style: TextStyle(
+                      color: tp.primaryColor.withOpacity(0.8),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ),
               ),
             ],
@@ -647,16 +715,39 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
                 labelStyle: TextStyle(color: tp.primaryColor),
               ),
             ),
-            TextField(
-              controller: backController,
-              minLines: 2,
-              maxLines: 3,
-              maxLength: 80,
-              decoration: InputDecoration(
-                labelText: "Definición (reverso)",
-                labelStyle: TextStyle(color: tp.primaryColor),
-              ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  "Definición (reverso)",
+                  style: TextStyle(
+                    color: tp.primaryColor,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                TextField(
+                  controller: backController,
+                  maxLines: 3,
+                  maxLength: 60,
+                  textAlignVertical: TextAlignVertical.top,
+                  decoration: InputDecoration(
+                    hintText: "Escribe la definición aquí",
+                    isDense: true,
+                    counterText: "",
+                    contentPadding: const EdgeInsets.symmetric(
+                      vertical: 10,
+                      horizontal: 12,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ],
             ),
+
           ],
         ),
         actions: [
@@ -705,36 +796,33 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
   void _flipCard() => setState(() => _isFront = !_isFront);
 
   void _mark(bool correcto) {
+    bool isLast = _current == _studyDeck.length - 1;
+
     setState(() {
-      // contar intentos/estudiadas
       _cardsStudied++;
 
       if (!correcto) {
         _incorrect.add(_studyDeck[_current]);
       }
 
-      // si era la última carta del deck actual
-      if (_current == _studyDeck.length - 1) {
-        // si hay incorrectas -> mostrar diálogo "Vamos de nuevo" antes de reiniciar
-        if (_incorrect.isNotEmpty) {
-          // pedimos confirmación para repetir solo las incorrectas
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            _showRetryIncorrectDialog();
-          });
-        } else {
-          // no hubo incorrectas -> mostrar felicitación y opciones
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            _showAllCorrectDialog();
-          });
-        }
-
-        // limpiamos el deck actual (esperamos la acción del diálogo)
-      } else {
+      if (!isLast) {
         _current++;
         _isFront = true;
       }
     });
+
+    // ⚠️ FUERA del setState
+    if (isLast) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_incorrect.isNotEmpty) {
+          _showRetryIncorrectDialog();
+        } else {
+          _showAllCorrectDialog();
+        }
+      });
+    }
   }
+
 
   // dialogo cuando todas correctas
   Future<void> _showAllCorrectDialog() async {
@@ -747,7 +835,7 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
 
     AudioPlayerService.play('assets/sounds/alert_finish.mp3');
 
-    await showDialog<String>(
+    final r = await showDialog<String>(
       context: context,
       barrierDismissible: false,
       builder: (_) => AlertDialog(
@@ -768,14 +856,12 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
             ),
           ],
         ),
-
         content: Text(
           'Has completado todas las tarjetas sin errores.\n\n¿Qué quieres hacer ahora?',
           style: TextStyle(color: tp.primaryColor),
         ),
-
         actions: [
-          // -------- BOTÓN SECUNDARIO (OUTLINED) --------
+          // -------- BOTÓN SECUNDARIO --------
           OutlinedButton(
             onPressed: () => Navigator.pop(context, 'menu'),
             style: OutlinedButton.styleFrom(
@@ -802,7 +888,29 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
         ],
       ),
     );
+
+    // 🔥 AQUÍ ESTABA EL PROBLEMA (ESTO ES LO NUEVO)
+    if (r == 'repetir') {
+      // ⛔ cortamos el render actual
+      setState(() {
+        _isStudying = false;
+      });
+
+      // ✅ esperamos a que Flutter limpie la vista
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _startStudySession();
+      });
+    } else {
+      setState(() {
+        _isStudying = false;
+        _studyDeck.clear();
+        _incorrect.clear();
+        _current = 0;
+        _isFront = true;
+      });
+    }
   }
+
 
 
 
@@ -1579,24 +1687,91 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
 
   Future<bool> _confirmarSalida() async {
     final tp = Provider.of<ThemeProvider>(context, listen: false);
+
     final salir = await showDialog<bool>(
       context: context,
+      barrierDismissible: false,
       builder: (_) => AlertDialog(
         backgroundColor: tp.cardColor,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Text(
-          "¿Deseas terminar tu sesión?",
-          style: TextStyle(color: tp.primaryColor),
+
+        title: Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.amber.shade700),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                "¿Deseas salir?",
+                style: TextStyle(
+                  color: tp.primaryColor,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
         ),
-        content: Text(
-          widget.idSesion != null
-              ? "Si sales ahora, esta sesión se marcará como finalizada."
-              : "Si retrocedes ahora, tu sesión de flashcards terminará.",
-          style: TextStyle(color: tp.primaryColor),
+
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              widget.idSesion != null
+                  ? "Si sales ahora, esta sesión se marcará como finalizada."
+                  : "Si sales ahora, tu sesión de flashcards terminará.",
+              style: TextStyle(color: tp.primaryColor),
+            ),
+            const SizedBox(height: 12),
+
+            // ⚠️ AVISO IMPORTANTE
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.amber.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline, color: Colors.amber.shade700, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      "Recuerda guardar tus tarjetas antes de salir. "
+                      "Si no lo haces, se eliminarán al cerrar la sesión.",
+                      style: TextStyle(
+                        color: tp.primaryColor,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
+
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: Text("No", style: TextStyle(color: tp.primaryColor))),
-          TextButton(onPressed: () => Navigator.pop(context, true), child: Text("Sí", style: TextStyle(color: tp.primaryColor))),
+          // BOTÓN SEGURO
+          OutlinedButton(
+            onPressed: () => Navigator.pop(context, false),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: tp.primaryColor,
+              side: BorderSide(color: tp.primaryColor.withOpacity(0.4)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            child: const Text("Cancelar"),
+          ),
+
+          // BOTÓN DE SALIDA
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            child: const Text("Salir"),
+          ),
         ],
       ),
     );
@@ -1606,13 +1781,9 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
 
       if (sesionId != null) {
         try {
-          print('🔄 Finalizando Flashcards...');
           await _finalizarSesion();
-          print('✅ Flashcards finalizada');
           await Future.delayed(const Duration(milliseconds: 300));
-        } catch (e) {
-          print('❌ Error: $e');
-        }
+        } catch (_) {}
       }
     }
 

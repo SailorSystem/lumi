@@ -273,21 +273,96 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
   /// Confirmación al salir (WillPopScope)
   Future<bool> _confirmarSalir() async {
     final tp = Provider.of<ThemeProvider>(context, listen: false);
+
     final salir = await showDialog<bool>(
       context: context,
+      barrierDismissible: false,
       builder: (_) => AlertDialog(
-        backgroundColor: tp.backgroundColor,
-        title: Text('¿Deseas terminar?', style: TextStyle(color: tp.primaryColor)),
-        content: Text(widget.idSesion != null
-            ? 'Si sales ahora, esta sesión se marcará como finalizada y perderás el mapa actual.'
-            : 'Si retrocedes ahora, perderás el mapa actual.', style: TextStyle(color: tp.primaryColor)),
+        backgroundColor: tp.cardColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+
+        title: Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.amber.shade700),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                '¿Deseas salir?',
+                style: TextStyle(
+                  color: tp.primaryColor,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        ),
+
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              widget.idSesion != null
+                  ? 'Si sales ahora, esta sesión se marcará como finalizada.'
+                  : 'Si sales ahora, el mapa mental actual se cerrará.',
+              style: TextStyle(color: tp.primaryColor),
+            ),
+            const SizedBox(height: 12),
+
+            // ⚠️ AVISO DE GUARDADO
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.amber.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline, color: Colors.amber.shade700, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Recuerda guardar tu mapa mental antes de salir. '
+                      'Si no lo haces, se perderán los cambios.',
+                      style: TextStyle(
+                        color: tp.primaryColor,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: Text('No', style: TextStyle(color: tp.primaryColor))),
-          TextButton(onPressed: () => Navigator.pop(context, true), child: Text('Sí', style: TextStyle(color: tp.primaryColor))),
+          // BOTÓN SEGURO
+          OutlinedButton(
+            onPressed: () => Navigator.pop(context, false),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: tp.primaryColor,
+              side: BorderSide(color: tp.primaryColor.withOpacity(0.4)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            child: const Text('Cancelar'),
+          ),
+
+          // BOTÓN PELIGRO
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            child: const Text('Salir'),
+          ),
         ],
       ),
     );
 
+    // 🔁 TU LÓGICA ORIGINAL (NO TOCADA)
     if (salir == true) {
       final sesionId = _sesionRapidaId ?? widget.idSesion;
       if (sesionId != null) {
@@ -302,6 +377,7 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
 
     return salir == true;
   }
+
 
   void _updateCanvasSize() {
     if (_rootNode == null) {
@@ -1069,57 +1145,6 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
       ),
     );
   }
-
-  Future<bool> _confirmarSalida() async {
-    final tp = Provider.of<ThemeProvider>(context, listen: false);
-    final salir = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        backgroundColor: tp.backgroundColor,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Text(
-          "¿Deseas terminar?",
-          style: TextStyle(color: tp.primaryColor),
-        ),
-        content: Text(
-          widget.idSesion != null
-              ? "Si sales ahora, esta sesión se marcará como finalizada y perderás el mapa actual."
-              : "Si retrocedes ahora, perderás el mapa actual.",
-          style: TextStyle(color: tp.primaryColor),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: Text("No", style: TextStyle(color: tp.primaryColor)),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: Text("Sí", style: TextStyle(color: tp.primaryColor)),
-          ),
-        ],
-      ),
-    );
-    
-    // ✅ FINALIZAR SESIÓN SI CONFIRMA SALIR
-    if (salir == true) {
-      final sesionId = _sesionRapidaId ?? widget.idSesion;
-      
-      if (sesionId != null) {
-        try {
-          print('🔄 Finalizando Mapa Mental...');
-          await _finalizarSesion();
-          print('✅ Mapa Mental finalizado');
-          await Future.delayed(const Duration(milliseconds: 300));
-        } catch (e) {
-          print('❌ Error: $e');
-        }
-      }
-    }
-    
-    return salir == true;
-  }
-
-
 
   @override
   Widget build(BuildContext context) {
