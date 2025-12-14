@@ -131,6 +131,63 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
     });
   }
 
+  Future<void> _deleteMateria(Map<String, dynamic> materia, BuildContext sheetCtx) async {
+    final confirmado = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Icon(Icons.warning_amber, color: Colors.orange),
+            const SizedBox(width: 8),
+            const Expanded(                    // 👈 clave para evitar overflow
+              child: Text(
+                '¿Eliminar materia?',
+                style: TextStyle(fontWeight: FontWeight.w600),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          'Se eliminará "${materia['nombre']}" permanentemente.\n\n¿Estás seguro?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmado == true) {
+      setState(() {
+        _materias.removeWhere((m) => m['id'] == materia['id']);
+        if (materiaSel?['id'] == materia['id']) {
+          materiaSel = null;
+        }
+      });
+      await _saveMaterias();
+      _recalcularCanSave();
+    }
+
+    if (Navigator.canPop(sheetCtx)) {
+      Navigator.pop(sheetCtx);
+    }
+  }
+
+
   Future<void> _limpiarMetodosViejos() async {
     final prefs = await SharedPreferences.getInstance();
     // Eliminar los métodos viejos con estructura incorrecta
@@ -434,17 +491,42 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
                 child: _materias.isEmpty
                     ? const Text('Aún no hay materias. Crea una con +.')
                     : ListView.separated(
-                  itemCount: _materias.length,
-                  separatorBuilder: (_, __) => const Divider(height: 1),
-                  itemBuilder: (_, i) {
-                    final t = _materias[i];
-                    return ListTile(
-                      leading: CircleAvatar(backgroundColor: Color(t['color'] as int)),
-                      title: Text(t['nombre'] as String),
-                      onTap: () => Navigator.pop(ctx, t),
-                    );
-                  },
-                ),
+                      itemCount: _materias.length,
+                      separatorBuilder: (_, __) => const Divider(height: 1),
+                      itemBuilder: (ctxList, i) {
+                        final t = _materias[i];
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 4.0), // Espacio extra
+                          child: ListTile(
+                            dense: true, // Tile más compacto
+                            leading: CircleAvatar(
+                              backgroundColor: Color(t['color'] as int),
+                              radius: 18, // Más pequeño
+                            ),
+                            title: Text(
+                              t['nombre'] as String,
+                              overflow: TextOverflow.ellipsis, // Corta texto largo
+                              maxLines: 1,
+                            ),
+                            trailing: IconButton(
+                              constraints: const BoxConstraints(
+                                minWidth: 32, // Tamaño fijo
+                                minHeight: 32,
+                              ),
+                              padding: EdgeInsets.zero, // Sin padding extra
+                              icon: const Icon(
+                                Icons.delete_outline,
+                                color: Colors.redAccent,
+                                size: 20, // Icono más pequeño
+                              ),
+                              onPressed: () => _deleteMateria(t, ctxList),
+                              tooltip: 'Eliminar materia',
+                            ),
+                            onTap: () => Navigator.pop(ctx, t),
+                          ),
+                        );
+                      },
+                    ),
               ),
             );
           },
@@ -479,6 +561,7 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
     final cardColor = themeProvider.cardColor;
     final textColor = themeProvider.textColor;
     final primary = themeProvider.primaryColor;
+    final FocusNode nameFocusNode = FocusNode();
 
     final nameCtrl = TextEditingController();
     Color picked = _paletteOrganizada.first.first;
@@ -487,6 +570,7 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: cardColor,
+      enableDrag: false,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
@@ -537,6 +621,7 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           TextFormField(
+                            focusNode: nameFocusNode,
                             controller: nameCtrl,
                             style: TextStyle(color: textColor),
                             decoration: InputDecoration(
@@ -564,11 +649,7 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
                               return null;
                             },
                             onChanged: (_) {
-                              // reiniciamos estado de error local y forzamos re-evaluación del form
-                              setS(() {
-                                errorLocal = false;
-                              });
-                              // opcional: forzar validar automáticamente
+                              errorLocal = false;
                               formKey.currentState?.validate();
                             },
                           ),
