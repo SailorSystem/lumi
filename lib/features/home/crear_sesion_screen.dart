@@ -566,19 +566,21 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
     final nameCtrl = TextEditingController();
     Color picked = _paletteOrganizada.first.first;
 
-    await showModalBottomSheet(
+    await showDialog(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: cardColor,
-      enableDrag: false,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
+      barrierDismissible: false, // evita que se cierre al tocar fuera
       builder: (ctx) {
-        // esta variable vive durante toda la vida del modal
         bool errorLocal = false;
-        // form key persistente dentro del modal
         final formKey = GlobalKey<FormState>();
+        int selectedCategoryIndex = 0; // nueva variable para categoría seleccionada
+        final categorias = [
+          'Rojos y Rosas',
+          'Naranjas y Amarillos',
+          'Verdes',
+          'Azules',
+          'Púrpuras y Violetas',
+          'Neutros',
+        ];
 
         return StatefulBuilder(
           builder: (ctx, setS) {
@@ -586,11 +588,12 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
             final nombre = nameCtrl.text.trim();
             final puedeGuardar = nombre.isNotEmpty;
 
-            print("DEBUG openMateriaSheet -> puedeGuardar=$puedeGuardar, nombre='$nombre'");
-
-            return SingleChildScrollView(
-              child: Padding(
-                padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + bottom),
+            return Dialog(
+              backgroundColor: cardColor,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+              insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+              child: SingleChildScrollView(
+                padding: EdgeInsets.only(left: 16, right: 16, top: 16, bottom: 16 + bottom),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -613,7 +616,7 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
                     ),
                     const SizedBox(height: 16),
 
-                    // ---------- FORMULARIO con TextFormField ----------
+                    // -------- FORMULARIO --------
                     Form(
                       key: formKey,
                       autovalidateMode: AutovalidateMode.onUserInteraction,
@@ -634,18 +637,12 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
                             ),
                             validator: (v) {
                               final t = (v ?? '').trim();
-                              if (t.isEmpty) {
-                                print("VALIDATOR: nombre vacío");
-                                return 'El nombre de la materia no puede estar vacío';
-                              }
+                              if (t.isEmpty) return 'El nombre de la materia no puede estar vacío';
                               final repetido = _materias.any((m) {
                                 final n = (m['nombre'] as String?) ?? '';
                                 return n.toLowerCase() == t.toLowerCase();
                               });
-                              if (repetido) {
-                                print("VALIDATOR: nombre repetido -> $t");
-                                return 'Ya existe una materia con ese nombre';
-                              }
+                              if (repetido) return 'Ya existe una materia con ese nombre';
                               return null;
                             },
                             onChanged: (_) {
@@ -653,8 +650,6 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
                               formKey.currentState?.validate();
                             },
                           ),
-
-                          // fallback: texto rojo manual (por si quieres evitar depender sólo del errorText)
                           if (errorLocal)
                             Padding(
                               padding: const EdgeInsets.only(top: 6, left: 4),
@@ -670,10 +665,9 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
                         ],
                       ),
                     ),
-
                     const SizedBox(height: 20),
 
-                    // PALETA DE COLORES (igual)
+                    // -------- SELECCIÓN DE COLOR --------
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -686,69 +680,56 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
                           ),
                         ),
                         const SizedBox(height: 12),
-                        ..._paletteOrganizada.asMap().entries.map((entry) {
-                          final index = entry.key;
-                          final colores = entry.value;
-                          final categorias = [
-                            'Rojos y Rosas',
-                            'Naranjas y Amarillos',
-                            'Verdes',
-                            'Azules',
-                            'Púrpuras y Violetas',
-                            'Neutros',
-                          ];
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 16),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Padding(
-                                  padding: const EdgeInsets.only(bottom: 8, left: 4),
-                                  child: Text(
-                                    categorias[index],
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w500,
-                                      color: textColor.withOpacity(0.6),
-                                    ),
+
+                        // Dropdown de categorías
+                        DropdownButton<int>(
+                          value: selectedCategoryIndex,
+                          items: categorias.asMap().entries.map((entry) {
+                            final idx = entry.key;
+                            final cat = entry.value;
+                            return DropdownMenuItem<int>(
+                              value: idx,
+                              child: Text(cat),
+                            );
+                          }).toList(),
+                          onChanged: (val) {
+                            if (val != null) setS(() => selectedCategoryIndex = val);
+                          },
+                        ),
+                        const SizedBox(height: 12),
+
+                        // Mostrar solo los colores de la categoría seleccionada
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          children: _paletteOrganizada[selectedCategoryIndex].map((c) {
+                            final sel = picked.value == c.value;
+                            return InkWell(
+                              onTap: () => setS(() => picked = c),
+                              borderRadius: BorderRadius.circular(12),
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 200),
+                                width: sel ? 50 : 44,
+                                height: sel ? 50 : 44,
+                                decoration: BoxDecoration(
+                                  color: c,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: sel ? Colors.white : c.withOpacity(0.3),
+                                    width: sel ? 3 : 2,
                                   ),
                                 ),
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                                  children: colores.map((c) {
-                                    final sel = picked.value == c.value;
-                                    return InkWell(
-                                      onTap: () => setS(() => picked = c),
-                                      borderRadius: BorderRadius.circular(12),
-                                      child: AnimatedContainer(
-                                        duration: const Duration(milliseconds: 200),
-                                        width: sel ? 50 : 44,
-                                        height: sel ? 50 : 44,
-                                        decoration: BoxDecoration(
-                                          color: c,
-                                          borderRadius: BorderRadius.circular(12),
-                                          border: Border.all(
-                                            color: sel ? Colors.white : c.withOpacity(0.3),
-                                            width: sel ? 3 : 2,
-                                          ),
-                                        ),
-                                        child: sel
-                                            ? const Icon(Icons.check, color: Colors.white, size: 28)
-                                            : null,
-                                      ),
-                                    );
-                                  }).toList(),
-                                ),
-                              ],
-                            ),
-                          );
-                        }).toList(),
+                                child: sel
+                                    ? const Icon(Icons.check, color: Colors.white, size: 28)
+                                    : null,
+                              ),
+                            );
+                          }).toList(),
+                        ),
                       ],
                     ),
-
                     const SizedBox(height: 20),
 
-                    // BOTONES
+                    // -------- BOTONES --------
                     Row(
                       children: [
                         Expanded(
@@ -769,24 +750,16 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
                         Expanded(
                           child: ElevatedButton(
                             onPressed: () async {
-                              // 1) Si el form NO valida, mostramos errorLocal y no cerramos
                               final ok = formKey.currentState?.validate() ?? false;
-                              print("AL PRESIONAR Guardar -> form valid? $ok");
                               if (!ok) {
-                                setS(() {
-                                  errorLocal = true;
-                                });
+                                setS(() => errorLocal = true);
                                 return;
                               }
-
-                              // 2) si pasa validación, creamos la materia
                               final nuevaMateria = {
                                 'id': DateTime.now().millisecondsSinceEpoch,
                                 'nombre': nombre,
                                 'color': picked.value,
                               };
-
-                              print("CREANDO materia -> $nuevaMateria");
                               await _addMateria(nuevaMateria);
                               Navigator.pop(ctx);
                             },
@@ -812,7 +785,6 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
         );
       },
     );
-
   }
 
 

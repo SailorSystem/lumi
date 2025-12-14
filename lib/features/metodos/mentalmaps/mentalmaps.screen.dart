@@ -1,19 +1,19 @@
 import 'dart:ui' as ui;
-import 'dart:typed_data'; // <-- agrega Uint8List
-import 'dart:async'; // <-- agrega Timer
+import 'dart:typed_data';
+import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart'; 
+import 'package:flutter/rendering.dart';
 import 'package:mind_map/mind_map.dart';
 import 'package:provider/provider.dart';
 import 'package:pdf/widgets.dart' as pw;
-import 'package:pdf/pdf.dart'; 
+import 'package:pdf/pdf.dart';
 import 'package:printing/printing.dart';
 import '../../../core/providers/theme_provider.dart';
 import '../../../core/services/sesion_service.dart';
 import '../../../core/services/mood_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../../../core/services/stat_service.dart'; 
+import '../../../core/services/stat_service.dart';
 import '../../../core/models/sesion.dart';
 import '../../../core/services/audio_player_service.dart';
 import 'dart:io';
@@ -22,20 +22,26 @@ import 'package:share_plus/share_plus.dart';
 import 'package:file_picker/file_picker.dart';
 import 'dart:convert';
 import 'dart:math';
-import 'package:flutter/rendering.dart';
-import 'package:printing/printing.dart';
-import 'package:pdf/widgets.dart' as pw;
-
 
 class MindNode {
+  final String id;
   String text;
   String? description;
   List<MindNode> children;
-  MindNode({required this.text, this.description = '', this.children = const []});
+  bool isCollapsed;
+
+  MindNode({
+    String? id,
+    required this.text,
+    this.description,
+    List<MindNode>? children,
+    this.isCollapsed = false,
+  })  : id = id ?? UniqueKey().toString(),
+        children = children ?? [];
 }
 
 class MentalMapsScreen extends StatefulWidget {
-  final int? idSesion; // ✅ AGREGAR
+  final int? idSesion;
   const MentalMapsScreen({Key? key, this.idSesion}) : super(key: key);
 
   @override
@@ -45,8 +51,13 @@ class MentalMapsScreen extends StatefulWidget {
 class _MentalMapsScreenState extends State<MentalMapsScreen> {
   MindNode? _rootNode;
   int _nodesCreated = 0;
-  // Key para capturar el widget (RepaintBoundary)
+
+  // Key para capturar solo el MAPA (no el UI)
   final GlobalKey _mapRepaintKey = GlobalKey();
+
+  // ✅ Key para capturar EXACTAMENTE lo que el usuario ve (viewport con zoom/pan)
+  final GlobalKey _viewportRepaintKey = GlobalKey();
+
   int? _sesionRapidaId;
   int? duracionEstipulada;
   int tiempoTranscurrido = 0;
@@ -54,24 +65,46 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
   Timer? tiempoTimer;
   DateTime? _sesionInicioFecha;
   bool _skipInfoMental = false;
-  // Convierte un MindNode a Map (JSON-friendly)
+  static const int _maxRenderDepth = 4;
+
+  final TransformationController _zoomController = TransformationController();
+  double _currentScale = 1.0;
+
+  void _zoomBy(double factor) {
+    final matrix = _zoomController.value.clone();
+    final newScale = (_currentScale * factor).clamp(0.5, 2.5);
+
+    matrix.scale(newScale / _currentScale);
+    _currentScale = newScale;
+
+    _zoomController.value = matrix;
+  }
+
   Map<String, dynamic> _mindNodeToMap(MindNode node) {
     return {
+      'id': node.id,
       'text': node.text,
       'description': node.description,
-      'children': node.children.map((c) => _mindNodeToMap(c)).toList(),
+      'isCollapsed': node.isCollapsed,
+      'children': node.children.map(_mindNodeToMap).toList(),
     };
   }
+
   // tamaño estimado del canvas para exportar
-  Size _canvasSize = const Size(1200, 800);
-  // clave para el RepaintBoundary offstage
+  Size _canvasSize = const Size(3000, 3000);
+
+  // clave para el RepaintBoundary offstage (si quieres mantener export "completo")
   final GlobalKey _exportBoundaryKey = GlobalKey();
-  // Crea MindNode desde Map
+
   MindNode _mindNodeFromMap(Map<String, dynamic> m) {
     return MindNode(
+      id: m['id'],
       text: m['text'] ?? '',
-      description: m['description'] ?? '',
-      children: (m['children'] as List<dynamic>? ?? []).map((e) => _mindNodeFromMap(Map<String, dynamic>.from(e))).toList(),
+      description: m['description'],
+      isCollapsed: m['isCollapsed'] ?? false,
+      children: (m['children'] as List<dynamic>? ?? [])
+          .map((e) => _mindNodeFromMap(Map<String, dynamic>.from(e)))
+          .toList(),
     );
   }
 
@@ -81,55 +114,127 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
     _createRootNode();
     _cargarDuracionEstipulada();
     _iniciarContadorTiempo();
-    _crearSesionRapidaSiNoExiste(); // ✅ AGREGAR ESTA LÍNEA
+    _crearSesionRapidaSiNoExiste();
     _cargarPreferenciaInfo();
   }
 
-  /// Pide un nombre de archivo al usuario (devuelve null si canceló)
-  Future<String?> _askFilenameDialog({String defaultPrefix = 'lumi_map_'}) async {
+  bool _removeNodeFromParent(MindNode parent, MindNode target) {
+    for (int i = 0; i < parent.children.length; i++) {
+      if (parent.children[i].id == target.id) {
+        parent.children.removeAt(i);
+        return true;
+      }
+      if (_removeNodeFromParent(parent.children[i], target)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool _removeNode(MindNode parent, MindNode target) {
+    if (parent.children.contains(target)) {
+      parent.children = List<MindNode>.from(parent.children)..remove(target);
+      return true;
+    }
+
+    for (final child in parent.children) {
+      if (_removeNode(child, target)) return true;
+    }
+
+    return false;
+  }
+
+  Future<void> _confirmRemoveNode(MindNode node) async {
     final tp = Provider.of<ThemeProvider>(context, listen: false);
-    final ctrl = TextEditingController(text: '${defaultPrefix}${DateTime.now().millisecondsSinceEpoch}');
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: tp.backgroundColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(17)),
+        title: Text("Eliminar nodo", style: TextStyle(color: tp.primaryColor)),
+        content: const Text("¿Eliminar este nodo y todos sus subtemas?"),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text("Cancelar", style: TextStyle(color: tp.primaryColor)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text("Eliminar", style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (ok == true && node != _rootNode) {
+      setState(() {
+        _removeNodeFromParent(_rootNode!, node);
+        _updateCanvasSize();
+      });
+    }
+  }
+
+  /// Pide un nombre de archivo al usuario (devuelve null si canceló)
+  Future<String?> _askFilenameDialog({String defaultPrefix = 'lumi_map'}) async {
+    final tp = Provider.of<ThemeProvider>(context, listen: false);
+    final ctrl = TextEditingController(
+      text: '${defaultPrefix}${DateTime.now().millisecondsSinceEpoch}',
+    );
+
     final r = await showDialog<String?>(
       context: context,
       builder: (_) => AlertDialog(
         backgroundColor: tp.cardColor,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text('Nombre de archivo', style: TextStyle(color: tp.primaryColor, fontWeight: FontWeight.bold)),
+        title: Text(
+          'Nombre de archivo',
+          style: TextStyle(color: tp.primaryColor, fontWeight: FontWeight.bold),
+        ),
         content: TextField(
           controller: ctrl,
-          decoration: InputDecoration(
-            hintText: 'nombre_sin_extensión',
-          ),
+          decoration: const InputDecoration(hintText: 'nombre_sin_extensión'),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, null), child: Text('Cancelar', style: TextStyle(color: tp.primaryColor))),
-          ElevatedButton(onPressed: () => Navigator.pop(context, ctrl.text.trim().isEmpty ? null : ctrl.text.trim()), child: const Text('Aceptar')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, null),
+            child: Text('Cancelar', style: TextStyle(color: tp.primaryColor)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(
+              context,
+              ctrl.text.trim().isEmpty ? null : ctrl.text.trim(),
+            ),
+            child: const Text('Aceptar'),
+          ),
         ],
       ),
     );
+
     return r;
   }
 
   /// Exportar el mapa (JSON) a archivo, y ofrecer compartir
   Future<void> _exportMapJson({required String filename}) async {
     if (_rootNode == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No hay mapa para exportar.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No hay mapa para exportar.')),
+      );
       return;
     }
 
     try {
-      // 1) convertir estructura a Map y luego JSON
       final map = _mindNodeToMap(_rootNode!);
       final jsonStr = jsonEncode(map);
 
-      // 2) escribir en tmp dir
       final dir = await getTemporaryDirectory();
       final filePath = '${dir.path}/$filename.json';
       final file = File(filePath);
       await file.writeAsString(jsonStr);
 
-      // 3) avisar y ofrecer compartir/exportar
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Mapa guardado temporalmente: $filePath')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Mapa guardado temporalmente: $filePath')),
+      );
 
       final share = await showDialog<bool>(
         context: context,
@@ -138,28 +243,45 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
           return AlertDialog(
             backgroundColor: tp.cardColor,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-            title: Text('Compartir o guardar', style: TextStyle(color: tp.primaryColor, fontWeight: FontWeight.bold)),
+            title: Text(
+              'Compartir o guardar',
+              style: TextStyle(color: tp.primaryColor, fontWeight: FontWeight.bold),
+            ),
             content: Text('Archivo $filename.json listo. ¿Deseas compartirlo ahora?'),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(context, false), child: Text('No', style: TextStyle(color: tp.primaryColor))),
-              ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Compartir')),
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: Text('No', style: TextStyle(color: tp.primaryColor)),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Compartir'),
+              ),
             ],
           );
         },
       );
 
       if (share == true) {
-        await Share.shareXFiles([XFile(filePath)], text: 'Mapa mental exportado desde Lumi');
+        await Share.shareXFiles(
+          [XFile(filePath)],
+          text: 'Mapa mental exportado desde Lumi',
+        );
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error exportando JSON: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error exportando JSON: $e')),
+      );
     }
   }
 
   /// Importar mapa (JSON) desde archivo elegido por el usuario
   Future<void> _importMapJson() async {
     try {
-      final result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['json']);
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['json'],
+      );
       if (result == null || result.files.isEmpty) return;
 
       final path = result.files.single.path;
@@ -169,10 +291,8 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
       final content = await file.readAsString();
       final decoded = jsonDecode(content);
 
-      // convertir mapa a MindNode
       final newRoot = _mindNodeFromMap(Map<String, dynamic>.from(decoded));
 
-      // confirmar sobrescritura si ya existe mapa
       if (_rootNode != null) {
         final ok = await _confirmarSobreEscritura();
         if (!ok) return;
@@ -180,35 +300,49 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
 
       setState(() {
         _rootNode = newRoot;
-        _nodesCreated = 1; // o recálculo si quieres exacto
+        _nodesCreated = 1;
       });
       _updateCanvasSize();
 
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Mapa importado correctamente')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Mapa importado correctamente')),
+      );
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error importando JSON: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error importando JSON: $e')),
+      );
     }
   }
 
-  /// Confirmar sobrescritura antes de importar o crear nuevo
   Future<bool> _confirmarSobreEscritura() async {
     final tp = Provider.of<ThemeProvider>(context, listen: false);
     final r = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
         backgroundColor: tp.cardColor,
-        title: Text('Sobrescribir mapa actual?', style: TextStyle(color: tp.primaryColor, fontWeight: FontWeight.bold)),
-        content: Text('El mapa actual se perderá si continúas. ¿Deseas continuar?', style: TextStyle(color: tp.primaryColor)),
+        title: Text(
+          'Sobrescribir mapa actual?',
+          style: TextStyle(color: tp.primaryColor, fontWeight: FontWeight.bold),
+        ),
+        content: Text(
+          'El mapa actual se perderá si continúas. ¿Deseas continuar?',
+          style: TextStyle(color: tp.primaryColor),
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: Text('Cancelar', style: TextStyle(color: tp.primaryColor))),
-          ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Continuar')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text('Cancelar', style: TextStyle(color: tp.primaryColor)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Continuar'),
+          ),
         ],
       ),
     );
     return r == true;
   }
 
-  /// Confirmar "Nuevo mapa" con opción de guardar
   Future<void> _confirmarNuevoMapa() async {
     if (_rootNode == null) {
       _createRootNode();
@@ -221,20 +355,34 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
       context: context,
       builder: (_) => AlertDialog(
         backgroundColor: tp.cardColor,
-        title: Text('Crear nuevo mapa', style: TextStyle(color: tp.primaryColor, fontWeight: FontWeight.bold)),
-        content: Text('El mapa actual se borrará si continúas. ¿Qué deseas hacer?', style: TextStyle(color: tp.primaryColor)),
+        title: Text(
+          'Crear nuevo mapa',
+          style: TextStyle(color: tp.primaryColor, fontWeight: FontWeight.bold),
+        ),
+        content: Text(
+          'El mapa actual se borrará si continúas. ¿Qué deseas hacer?',
+          style: TextStyle(color: tp.primaryColor),
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, null), child: Text('Cancelar', style: TextStyle(color: tp.primaryColor))),
-          TextButton(onPressed: () => Navigator.pop(context, 'guardar'), child: Text('Guardar', style: TextStyle(color: tp.primaryColor))),
-          ElevatedButton(onPressed: () => Navigator.pop(context, 'continuar'), child: const Text('Continuar sin guardar')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, null),
+            child: Text('Cancelar', style: TextStyle(color: tp.primaryColor)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, 'guardar'),
+            child: Text('Guardar', style: TextStyle(color: tp.primaryColor)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, 'continuar'),
+            child: const Text('Continuar sin guardar'),
+          ),
         ],
       ),
     );
 
     if (action == 'guardar') {
-      final name = await _askFilenameDialog(defaultPrefix: 'lumi_map_');
+      final name = await _askFilenameDialog(defaultPrefix: 'lumi_map');
       if (name != null) await _exportMapJson(filename: name);
-      // después de guardar, crear nuevo
       setState(() {
         _rootNode = null;
         _nodesCreated = 0;
@@ -247,7 +395,6 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
     }
   }
 
-  /// Confirmar finalización de sesión (reusa tu lógica de finalizar)
   Future<void> _confirmarFinalizarSesion() async {
     final tp = Provider.of<ThemeProvider>(context, listen: false);
     final confirmar = await showDialog<bool>(
@@ -255,11 +402,23 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
       builder: (context) => AlertDialog(
         backgroundColor: tp.cardColor,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Text('¿Completar sesión?', style: TextStyle(color: tp.primaryColor, fontWeight: FontWeight.bold)),
-        content: Text('Has creado $_nodesCreated nodos. ¿Deseas marcar esta sesión como finalizada?', style: TextStyle(color: tp.primaryColor)),
+        title: Text(
+          '¿Completar sesión?',
+          style: TextStyle(color: tp.primaryColor, fontWeight: FontWeight.bold),
+        ),
+        content: Text(
+          'Has creado $_nodesCreated nodos. ¿Deseas marcar esta sesión como finalizada?',
+          style: TextStyle(color: tp.primaryColor),
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: Text('Cancelar', style: TextStyle(color: tp.primaryColor))),
-          ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Completar')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text('Cancelar', style: TextStyle(color: tp.primaryColor)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Completar'),
+          ),
         ],
       ),
     );
@@ -270,7 +429,6 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
     }
   }
 
-  /// Confirmación al salir (WillPopScope)
   Future<bool> _confirmarSalir() async {
     final tp = Provider.of<ThemeProvider>(context, listen: false);
 
@@ -280,7 +438,6 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
       builder: (_) => AlertDialog(
         backgroundColor: tp.cardColor,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-
         title: Row(
           children: [
             Icon(Icons.warning_amber_rounded, color: Colors.amber.shade700),
@@ -288,15 +445,11 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
             Expanded(
               child: Text(
                 '¿Deseas salir?',
-                style: TextStyle(
-                  color: tp.primaryColor,
-                  fontWeight: FontWeight.bold,
-                ),
+                style: TextStyle(color: tp.primaryColor, fontWeight: FontWeight.bold),
               ),
             ),
           ],
         ),
-
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -308,8 +461,6 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
               style: TextStyle(color: tp.primaryColor),
             ),
             const SizedBox(height: 12),
-
-            // ⚠️ AVISO DE GUARDADO
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
@@ -324,10 +475,7 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
                     child: Text(
                       'Recuerda guardar tu mapa mental antes de salir. '
                       'Si no lo haces, se perderán los cambios.',
-                      style: TextStyle(
-                        color: tp.primaryColor,
-                        fontSize: 13,
-                      ),
+                      style: TextStyle(color: tp.primaryColor, fontSize: 13),
                     ),
                   ),
                 ],
@@ -335,9 +483,7 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
             ),
           ],
         ),
-
         actions: [
-          // BOTÓN SEGURO
           OutlinedButton(
             onPressed: () => Navigator.pop(context, false),
             style: OutlinedButton.styleFrom(
@@ -347,8 +493,6 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
             ),
             child: const Text('Cancelar'),
           ),
-
-          // BOTÓN PELIGRO
           ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
             style: ElevatedButton.styleFrom(
@@ -362,7 +506,6 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
       ),
     );
 
-    // 🔁 TU LÓGICA ORIGINAL (NO TOCADA)
     if (salir == true) {
       final sesionId = _sesionRapidaId ?? widget.idSesion;
       if (sesionId != null) {
@@ -378,14 +521,12 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
     return salir == true;
   }
 
-
   void _updateCanvasSize() {
     if (_rootNode == null) {
       setState(() => _canvasSize = const Size(800, 600));
       return;
     }
 
-    // calcula profundidad y max nodos por nivel
     final Map<int, int> countPerLevel = {};
     void dfs(MindNode node, int level) {
       countPerLevel[level] = (countPerLevel[level] ?? 0) + 1;
@@ -394,17 +535,19 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
 
     dfs(_rootNode!, 0);
 
-    final maxDepth = countPerLevel.keys.isEmpty ? 1 : (countPerLevel.keys.reduce((a, b) => a > b ? a : b) + 1);
-    final maxPerLevel = countPerLevel.values.isEmpty ? 1 : countPerLevel.values.reduce((a, b) => a > b ? a : b);
+    final maxDepth = countPerLevel.keys.isEmpty
+        ? 1
+        : (countPerLevel.keys.reduce((a, b) => a > b ? a : b) + 1);
+    final maxPerLevel = countPerLevel.values.isEmpty
+        ? 1
+        : countPerLevel.values.reduce((a, b) => a > b ? a : b);
 
-    // parámetros de diseño — ajusta si quieres nodes más grandes/espacio
-    final double colWidth = 260; // ancho estimado por nivel (columna)
-    final double rowHeight = 140; // alto estimado por nodo en vertical
+    const double colWidth = 260;
+    const double rowHeight = 140;
 
     final double width = (maxDepth + 1) * colWidth;
     final double height = (maxPerLevel + 1) * rowHeight;
 
-    // limita a un mínimo y a un máximo razonable para evitar tamaños absurdos
     final double finalWidth = width.clamp(800, 8000);
     final double finalHeight = height.clamp(600, 8000);
 
@@ -413,14 +556,10 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
     });
   }
 
-
+  // (opcional) Render "completo" offstage — se mantiene por si lo quieres aparte
   Future<ui.Image?> _renderFullMapImage() async {
-    // 1) actualizar canvas size
-    _updateCanvasSize();
     final overlay = Overlay.of(context);
-    if (overlay == null) {
-      return null;
-    }
+    if (overlay == null) return null;
 
     final repaintKey = GlobalKey();
     final overlayEntry = OverlayEntry(
@@ -429,7 +568,7 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
           color: Colors.transparent,
           child: Center(
             child: Offstage(
-              offstage: false, // debe ser false para que pinte en el layer, pero estará encima y temporal
+              offstage: false,
               child: RepaintBoundary(
                 key: repaintKey,
                 child: SizedBox(
@@ -446,7 +585,6 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
 
     overlay.insert(overlayEntry);
 
-    // Esperar un frame para que renderice (puedes ajustar el delay si es necesario)
     await Future.delayed(const Duration(milliseconds: 120));
     await WidgetsBinding.instance.endOfFrame;
 
@@ -457,7 +595,6 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
         return null;
       }
 
-      // pixelRatio: 3 para buena calidad (ajusta si lo quieres mayor/mayor tamaño)
       final ui.Image image = await boundary.toImage(pixelRatio: 3.0);
       overlayEntry.remove();
       return image;
@@ -470,7 +607,6 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
   Widget _buildFullMapForExport() {
     if (_rootNode == null) return const SizedBox.shrink();
 
-    // Reusa _graphicalNode y _buildMindMapChildren que ya declaraste
     return Container(
       color: Colors.transparent,
       child: Center(
@@ -497,7 +633,6 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
     );
   }
 
-
   Future<void> _cargarPreferenciaInfo() async {
     final prefs = await SharedPreferences.getInstance();
     _skipInfoMental = prefs.getBool('skip_info_mental') ?? false;
@@ -510,18 +645,18 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
 
   Future<void> _cargarDuracionEstipulada() async {
     if (widget.idSesion == null) return;
-    
+
     try {
       final response = await Supabase.instance.client
           .from('sesiones')
           .select('duracion_total')
           .eq('id_sesion', widget.idSesion!)
           .single();
-      
+
       duracionEstipulada = response['duracion_total'] as int?;
-      
+
       if (duracionEstipulada != null) {
-        print('⏱️ Duración estipulada: ${duracionEstipulada! ~/ 60} minutos');
+        print('⏱ Duración estipulada: ${duracionEstipulada! ~/ 60} minutos');
       }
     } catch (e) {
       print('❌ Error cargando duración: $e');
@@ -531,10 +666,9 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
   void _iniciarContadorTiempo() {
     tiempoTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       tiempoTranscurrido++;
-      
-      // Verificar si se cumplió el tiempo
-      if (!tiempoEstipuladoCumplido && 
-          duracionEstipulada != null && 
+
+      if (!tiempoEstipuladoCumplido &&
+          duracionEstipulada != null &&
           tiempoTranscurrido >= duracionEstipulada!) {
         tiempoEstipuladoCumplido = true;
         AudioPlayerService.play('assets/sounds/alert_finish.mp3');
@@ -548,20 +682,20 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
       print('📅 Sesión programada: ${widget.idSesion}');
       return;
     }
-    
+
     print('🚀 Creando sesión rápida de Mapa Mental...');
-    
+
     try {
       final prefs = await SharedPreferences.getInstance();
       final userId = prefs.getInt('user_id');
-      
+
       if (userId == null) {
         print('❌ No hay userId');
         return;
       }
-      
-      _sesionInicioFecha = DateTime.now(); // ✅ Guardar hora de inicio
-      
+
+      _sesionInicioFecha = DateTime.now();
+
       final nuevaSesion = Sesion(
         idUsuario: userId,
         nombreSesion: 'Sesión Rápida (Mapa Mental)',
@@ -570,9 +704,9 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
         estado: 'programada',
         duracionTotal: 0,
       );
-      
+
       final sesionCreada = await SesionService.crearSesion(nuevaSesion);
-      
+
       if (sesionCreada != null) {
         setState(() {
           _sesionRapidaId = sesionCreada.idSesion;
@@ -583,9 +717,10 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
       print('❌ Error creando sesión rápida: $e');
     }
   }
+
   Future<void> _mostrarDialogoTiempoCumplido() async {
     final tp = Provider.of<ThemeProvider>(context, listen: false);
-    
+
     final continuar = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
@@ -593,16 +728,13 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
         backgroundColor: tp.cardColor,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Row(
-          children: [
+          children: const [
             Icon(Icons.check_circle, color: Colors.green, size: 28),
-            const SizedBox(width: 12),
+            SizedBox(width: 12),
             Expanded(
               child: Text(
                 '¡Tiempo cumplido!',
-                style: TextStyle(
-                  color: tp.primaryColor,
-                  fontWeight: FontWeight.bold,
-                ),
+                style: TextStyle(fontWeight: FontWeight.bold),
               ),
             ),
           ],
@@ -635,15 +767,13 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
         ],
       ),
     );
-    
+
     if (continuar != true) {
-      // Finalizar sesión
       await _finalizarSesion();
       if (mounted) Navigator.of(context).pop(true);
     }
   }
 
-  // Gradientes para diferenciar niveles (light)
   final List<List<Color>> _levelGradientsLight = [
     [const Color(0xffFFD700), const Color(0xffFFF7AE)],
     [const Color(0xffB8DFD8), const Color(0xffD6EFE8)],
@@ -652,7 +782,6 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
     [const Color(0xffA0E7E5), const Color(0xffB4FFF8)],
   ];
 
-  // Gradientes alternativos para dark (más apagados)
   final List<List<Color>> _levelGradientsDark = [
     [const Color(0xFF8B6A00), const Color(0xFF6F5A00)],
     [const Color(0xFF176A5A), const Color(0xFF225E50)],
@@ -694,36 +823,25 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
                 setState(() => _skipInfoMental = true);
                 if (mounted) Navigator.pop(context);
               },
-              child: Text(
-                "No volver a mostrar",
-                style: TextStyle(color: tp.primaryColor),
-              ),
+              child: Text("No volver a mostrar", style: TextStyle(color: tp.primaryColor)),
             ),
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: Text(
-              "Entendido",
-              style: TextStyle(color: tp.primaryColor),
-            ),
+            child: Text("Entendido", style: TextStyle(color: tp.primaryColor)),
           ),
         ],
       ),
     );
   }
 
-
   @override
   void dispose() {
-    // ✅ AGREGAR: Finalizar automáticamente si creó nodos
     if (widget.idSesion != null && _nodesCreated > 0) {
-      SesionService.actualizarEstadoSesion(
-        widget.idSesion!,
-        'finalizada',
-      ).catchError((e) {
+      SesionService.actualizarEstadoSesion(widget.idSesion!, 'finalizada').catchError((e) {
         print('Error finalizando sesión en dispose: $e');
       });
     }
-    tiempoTimer?.cancel(); // ✅ AGREGAR
+    tiempoTimer?.cancel();
     super.dispose();
   }
 
@@ -731,30 +849,30 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
     print('\n╔════════════════════════════════════════════════╗');
     print('║   INICIANDO FINALIZACIÓN DE MAPA MENTAL        ║');
     print('╚════════════════════════════════════════════════╝');
-    
+
     final sesionId = _sesionRapidaId ?? widget.idSesion;
-    
+
     print('📋 DATOS INICIALES:');
     print('   _sesionRapidaId: $_sesionRapidaId');
     print('   widget.idSesion: ${widget.idSesion}');
     print('   sesionId final: $sesionId');
     print('   Es sesión rápida: ${_sesionRapidaId != null}');
-    
+
     if (sesionId == null) {
       print('❌ ERROR: sesionId es null, abortando...\n');
       return;
     }
-    
+
     final prefs = await SharedPreferences.getInstance();
     final userId = prefs.getInt('user_id');
     print('   userId: $userId');
-    
+
     if (userId != null) {
       print('\n😊 Actualizando estado de ánimo...');
       await MoodService.calcularYActualizarEstadoAnimo(userId);
       print('   ✅ Estado de ánimo actualizado');
     }
-    
+
     try {
       print('\n🔄 ACTUALIZANDO SESIÓN EN BD...');
       print('   Sesión ID: $sesionId');
@@ -762,7 +880,7 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
       print('   - estado: finalizada');
       print('   - duracion_total: 0');
       print('   - fecha: ${DateTime.now().toIso8601String()}');
-      
+
       try {
         await SesionService.actualizarSesion(
           sesionId,
@@ -777,7 +895,7 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
         print('   ❌ ERROR al actualizar sesión: $errorUpdate');
         rethrow;
       }
-      
+
       print('\n📊 GUARDANDO ESTADÍSTICA...');
       if (userId != null) {
         try {
@@ -787,21 +905,21 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
             tiempoTotalSegundos: 0,
             ciclosCompletados: 1,
           );
-          
+
           if (statGuardada) {
             print('   ✅ Estadística guardada correctamente');
           } else {
-            print('   ⚠️ Estadística retornó false');
+            print('   ⚠ Estadística retornó false');
           }
         } catch (errorStat) {
           print('   ❌ ERROR guardando estadística: $errorStat');
         }
       }
-      
+
       print('\n╔════════════════════════════════════════════════╗');
       print('║          ✅ FINALIZACIÓN EXITOSA               ║');
       print('╚════════════════════════════════════════════════╝\n');
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -819,7 +937,7 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
       print('Stack trace:');
       print(stackTrace);
       print('════════════════════════════════════════════════\n');
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -831,12 +949,9 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
     }
   }
 
-  
-  // ✅ AGREGAR TODO ESTE MÉTODO
   Widget _buildCompletarButton() {
     final tp = Provider.of<ThemeProvider>(context);
-    final btnBg = tp.isDarkMode ? tp.cardColor : Colors.white.withOpacity(0.9);
-    
+
     return Padding(
       padding: const EdgeInsets.all(20),
       child: ElevatedButton.icon(
@@ -845,15 +960,10 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
             context: context,
             builder: (context) => AlertDialog(
               backgroundColor: tp.cardColor,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
-              ),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
               title: Text(
                 '¿Completar sesión?',
-                style: TextStyle(
-                  color: tp.primaryColor,
-                  fontWeight: FontWeight.bold,
-                ),
+                style: TextStyle(color: tp.primaryColor, fontWeight: FontWeight.bold),
               ),
               content: Text(
                 'Has creado $_nodesCreated nodos en tu mapa mental.\n\n'
@@ -863,10 +973,7 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(context, false),
-                  child: Text(
-                    'Cancelar',
-                    style: TextStyle(color: tp.primaryColor),
-                  ),
+                  child: Text('Cancelar', style: TextStyle(color: tp.primaryColor)),
                 ),
                 ElevatedButton(
                   onPressed: () => Navigator.pop(context, true),
@@ -879,12 +986,10 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
               ],
             ),
           );
-          
+
           if (confirmar == true) {
             await _finalizarSesion();
-            if (mounted) {
-              Navigator.of(context).pop(true);
-            }
+            if (mounted) Navigator.of(context).pop(true);
           }
         },
         icon: const Icon(Icons.check_circle),
@@ -893,19 +998,18 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
           backgroundColor: Colors.green,
           foregroundColor: Colors.white,
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         ),
       ),
     );
   }
-  // Diálogo para crear un nodo (tema central o subtema)
+
   Future<MindNode?> _askNode({String title = "Tema o Subtema"}) async {
     final tp = Provider.of<ThemeProvider>(context, listen: false);
     final textController = TextEditingController();
     final descController = TextEditingController();
     MindNode? result;
+
     await showDialog(
       context: context,
       builder: (_) => AlertDialog(
@@ -951,152 +1055,182 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
         ],
       ),
     );
+
     return result;
   }
 
-  // Crear mapa nuevo (tema central)
   void _createRootNode() async {
     MindNode? root = await _askNode(title: "Tema central");
     if (root != null) {
       setState(() {
         _rootNode = root;
-        _nodesCreated++; // ✅ AGREGAR ESTA LÍNEA
+        _nodesCreated++;
       });
       _updateCanvasSize();
     }
   }
 
-
-  // Añadir subnodo a cualquier nodo
   void _addChildNode(MindNode parent) async {
     MindNode? child = await _askNode(title: "Nuevo subtema o idea");
     if (child != null) {
       setState(() {
         parent.children = List<MindNode>.from(parent.children)..add(child);
-        _nodesCreated++; // ✅ AGREGAR ESTA LÍNEA
+        _nodesCreated++;
       });
       _updateCanvasSize();
     }
   }
 
+  // ✅ Captura el viewport EXACTO (lo que se ve, con zoom/pan)
+  Future<Uint8List?> _captureViewportPng({double pixelRatio = 3.0}) async {
+    await WidgetsBinding.instance.endOfFrame;
 
-  // Export a PDF como captura (imagen) del widget visible del mapa
+    final boundary =
+        _viewportRepaintKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+    if (boundary == null) return null;
+
+    final ui.Image image = await boundary.toImage(pixelRatio: pixelRatio);
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+    return byteData?.buffer.asUint8List();
+  }
+
+  // ✅ Export PDF como "captura" de lo que el usuario ve (zoom/pan incluidos)
   Future<void> _exportPdf() async {
     if (_rootNode == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No hay mapa para exportar.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No hay mapa para exportar.')),
+      );
       return;
     }
 
     try {
-      // 1) Actualiza tamaño estimado
-      _updateCanvasSize();
-
-      // 2) Renderiza full image
-      final ui.Image? fullImage = await _renderFullMapImage();
-      if (fullImage == null) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No se pudo renderizar el mapa completo.')));
+      final pngBytes = await _captureViewportPng(pixelRatio: 3.0);
+      if (pngBytes == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No se pudo capturar la vista actual.')),
+        );
         return;
       }
 
-      final byteData = await fullImage.toByteData(format: ui.ImageByteFormat.png);
-      if (byteData == null) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error al obtener bytes de la imagen.')));
-        return;
-      }
-
-      final pngBytes = byteData.buffer.asUint8List();
-
-      // 3) Crear pdf. Escalar la imagen para que quepa en la página, pero usar tamaño real si quieres múltiples páginas.
       final doc = pw.Document();
-
       final image = pw.MemoryImage(pngBytes);
 
-      // Ajuste: si la imagen es muy alta/ancha, la dejamos en fit contain.
       doc.addPage(
         pw.Page(
           pageFormat: PdfPageFormat.a4,
-          build: (ctx) {
-            return pw.Center(child: pw.Image(image, fit: pw.BoxFit.contain));
-          },
+          build: (_) => pw.Center(
+            child: pw.Image(image, fit: pw.BoxFit.contain),
+          ),
         ),
       );
 
       final pdfBytes = await doc.save();
-      await Printing.sharePdf(bytes: pdfBytes, filename: '${_rootNode!.text}_completo.pdf');
+      await Printing.sharePdf(
+        bytes: pdfBytes,
+        filename: '${_rootNode!.text}_vista_actual.pdf',
+      );
     } catch (e, st) {
       print('Error export PDF: $e\n$st');
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Falló exportar PDF: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Falló exportar PDF: $e')),
+      );
     }
   }
 
-
-  // Widget para nodo visual (con gradiente y conexión)
   Widget _graphicalNode(MindNode node, {int level = 0, double minWidth = 120}) {
     final tp = Provider.of<ThemeProvider>(context, listen: false);
     final gradColors = nodeGradient(context, level);
-    final btnBg = tp.isDarkMode ? tp.cardColor : Colors.white.withOpacity(0.9);
-    return GestureDetector(
-      onDoubleTap: () => _addChildNode(node),
-      child: Container(
-        constraints: BoxConstraints(minWidth: minWidth, minHeight: 46),
-        margin: const EdgeInsets.all(6),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: gradColors,
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: BorderRadius.circular(24),
-          boxShadow: [
-            BoxShadow(
-              color: tp.primaryColor.withOpacity(0.12),
-              blurRadius: 8,
-              offset: const Offset(0, 3),
-            )
-          ],
-          border: Border.all(color: tp.primaryColor.withOpacity(0.14)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Text(
-              node.text,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                color: tp.primaryColor,
-                fontSize: (16 + (2 - level).clamp(0, 4)).toDouble(),
-              ),
+
+    return RepaintBoundary(
+      child: GestureDetector(
+        onDoubleTap: () => _addChildNode(node),
+        child: Container(
+          constraints: BoxConstraints(minWidth: minWidth, minHeight: 46),
+          margin: const EdgeInsets.all(6),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: gradColors,
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
             ),
-            if (node.description != null && node.description!.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 3),
-                child: Text(
-                  node.description!,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: tp.primaryColor.withOpacity(0.8),
-                    fontSize: (14 + (2 - level).clamp(0, 4)).toDouble(),
-                  ),
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: [
+              BoxShadow(
+                color: tp.primaryColor.withOpacity(0.12),
+                blurRadius: 8,
+                offset: const Offset(0, 3),
+              )
+            ],
+            border: Border.all(color: tp.primaryColor.withOpacity(0.14)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                node.text,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: tp.primaryColor,
+                  fontSize: (16 + (2 - level).clamp(0, 4)).toDouble(),
                 ),
               ),
-            IconButton(
-              icon: Icon(Icons.add_circle_outline, color: tp.primaryColor, size: 20),
-              onPressed: () => _addChildNode(node),
-              tooltip: "Agregar subtema",
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(),
-            ),
-          ],
+              if (node.description?.isNotEmpty == true)
+                Padding(
+                  padding: const EdgeInsets.only(top: 3),
+                  child: Text(
+                    node.description!,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: tp.primaryColor.withOpacity(0.8),
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+              if (node != _rootNode)
+                IconButton(
+                  icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  onPressed: () => _confirmRemoveNode(node),
+                ),
+              IconButton(
+                icon: Icon(Icons.add_circle_outline, color: tp.primaryColor, size: 20),
+                onPressed: () => _addChildNode(node),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  // Recursivamente construye los nodos MindMap
   List<Widget> _buildMindMapChildren(MindNode node, int level) {
-    if (node.children.isEmpty) return [];
+    if (node.isCollapsed) {
+      return [
+        MindMap(
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                '+${node.children.length} subtemas ocultos',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontStyle: FontStyle.italic,
+                  color: Theme.of(context).primaryColor.withOpacity(0.7),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ];
+    }
+
+    if (level >= _maxRenderDepth) return [];
+
     return node.children.map((child) {
       return MindMap(
         dotRadius: 4,
@@ -1110,72 +1244,95 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
 
   Widget _buildMapVisual() {
     final tp = Provider.of<ThemeProvider>(context, listen: false);
+
     if (_rootNode == null) {
       return Center(
         child: ElevatedButton.icon(
           onPressed: _createRootNode,
           icon: Icon(Icons.add, color: tp.primaryColor),
           label: Text("Crear mapa mental", style: TextStyle(color: tp.primaryColor)),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: tp.cardColor,
-            elevation: 0,
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(17)),
-          ),
         ),
       );
     }
-    // RepaintBoundary envuelve la vista para capturar como imagen
-    return RepaintBoundary(
-      key: _mapRepaintKey,
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: SingleChildScrollView(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 20),
-            child: MindMap(
-              dotRadius: 5,
-              children: [
-                _graphicalNode(_rootNode!, level: 0, minWidth: 150),
-                ..._buildMindMapChildren(_rootNode!, 0),
-              ],
+
+    return Stack(
+      children: [
+        // ✅ Boundary del "viewport visible"
+        RepaintBoundary(
+          key: _viewportRepaintKey,
+          child: SizedBox.expand(
+            child: ClipRect(
+              child: InteractiveViewer(
+                transformationController: _zoomController,
+                minScale: 0.4,
+                maxScale: 3.0,
+                constrained: false, // mantiene tu canvas libre
+                panEnabled: true,
+                scaleEnabled: true,
+                child: RepaintBoundary(
+                  key: _mapRepaintKey,
+                  child: Padding(
+                    padding: const EdgeInsets.all(40),
+                    child: MindMap(
+                      dotRadius: 5,
+                      children: [
+                        _graphicalNode(_rootNode!, level: 0, minWidth: 150),
+                        ..._buildMindMapChildren(_rootNode!, 0),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             ),
           ),
         ),
-      ),
+
+        // ✅ UI fuera de la captura
+        Positioned(
+          right: 16,
+          bottom: 16,
+          child: Column(
+            children: [
+              FloatingActionButton(
+                mini: true,
+                onPressed: () => _zoomBy(1.2),
+                child: const Icon(Icons.add),
+              ),
+              const SizedBox(height: 8),
+              FloatingActionButton(
+                mini: true,
+                onPressed: () => _zoomBy(0.8),
+                child: const Icon(Icons.remove),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
   @override
   Widget build(BuildContext context) {
     final tp = Provider.of<ThemeProvider>(context);
-    // usar mismo gradiente que Home (respeta tp.isDarkMode y tp.backgroundColor)
+
     final colors = tp.isDarkMode
         ? [const Color(0xFF212C36), const Color(0xFF313940), tp.backgroundColor]
         : [const Color(0xFFB6C9D6), const Color(0xFFE6DACA), tp.backgroundColor];
 
     return WillPopScope(
-      onWillPop: () async {
-        return await _confirmarSalir();
-      },
+      onWillPop: () async => await _confirmarSalir(),
       child: Scaffold(
         backgroundColor: tp.backgroundColor,
-        // dentro de build(), donde ya definiste tp y colors:
         appBar: PreferredSize(
           preferredSize: const Size.fromHeight(90),
           child: AppBar(
             elevation: 0,
             centerTitle: true,
-            automaticallyImplyLeading: true, // ⬅ permite botón de retroceso
+            automaticallyImplyLeading: true,
             title: Text(
               'Mapa Mental',
-              style: TextStyle(
-                color: tp.primaryColor,
-                fontWeight: FontWeight.bold,
-              ),
+              style: TextStyle(color: tp.primaryColor, fontWeight: FontWeight.bold),
             ),
-
-            // 🎨 Gradiente
             flexibleSpace: Container(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
@@ -1186,29 +1343,22 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
                 ),
               ),
             ),
-
             actions: [
-              // Botón INFO
               IconButton(
                 icon: Icon(Icons.info_outline, color: tp.primaryColor),
                 tooltip: 'Información',
                 onPressed: _showInfoDialog,
               ),
-
-              // 👉 Botón MENU (endDrawer)
               Builder(
                 builder: (ctx) => IconButton(
                   icon: Icon(Icons.menu, color: tp.primaryColor),
                   tooltip: 'Menú',
-                  onPressed: () {
-                    Scaffold.of(ctx).openEndDrawer(); // ← ahora sí funciona
-                  },
+                  onPressed: () => Scaffold.of(ctx).openEndDrawer(),
                 ),
               ),
             ],
           ),
         ),
-
         endDrawer: Drawer(
           backgroundColor: tp.cardColor,
           shape: const RoundedRectangleBorder(
@@ -1217,8 +1367,6 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
           child: ListView(
             padding: EdgeInsets.zero,
             children: [
-
-              // ENCABEZADO
               DrawerHeader(
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
@@ -1240,32 +1388,40 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
                 ),
               ),
 
-              // Importar JSON
+              // Guardar JSON
+              ListTile(
+                leading: Icon(Icons.save_alt, color: tp.primaryColor),
+                title: Text('Guardar mapa', style: TextStyle(color: tp.primaryColor)),
+                subtitle: Text(
+                  'Archivo .json seguro en tu dispositivo\nNo es peligroso, solo texto editable',
+                  style: TextStyle(color: tp.primaryColor.withOpacity(0.7), fontSize: 12),
+                ),
+                onTap: () async {
+                  Navigator.pop(context);
+                  final name = await _askFilenameDialog(defaultPrefix: 'mimapa');
+                  if (name != null) await _exportMapJson(filename: name);
+                },
+              ),
+
+              // Cargar JSON
               ListTile(
                 leading: Icon(Icons.folder_open, color: tp.primaryColor),
-                title: Text("Importar mapa (JSON)", style: TextStyle(color: tp.primaryColor)),
+                title: Text('Cargar mapa', style: TextStyle(color: tp.primaryColor)),
+                subtitle: Text(
+                  'Selecciona archivo .json de mapas guardados',
+                  style: TextStyle(color: tp.primaryColor.withOpacity(0.7), fontSize: 12),
+                ),
                 onTap: () async {
                   Navigator.pop(context);
                   await _importMapJson();
                 },
               ),
 
-              // Exportar JSON
-              ListTile(
-                leading: Icon(Icons.save_alt, color: tp.primaryColor),
-                title: Text("Exportar mapa (JSON)", style: TextStyle(color: tp.primaryColor)),
-                onTap: () async {
-                  Navigator.pop(context);
-                  final name = await _askFilenameDialog(defaultPrefix: 'lumi_map_');
-                  if (name != null) await _exportMapJson(filename: name);
-                },
-              ),
-
-              // Exportar PDF
+              // Exportar PDF (vista actual)
               if (_rootNode != null)
                 ListTile(
                   leading: Icon(Icons.picture_as_pdf, color: tp.primaryColor),
-                  title: Text("Exportar PDF completo", style: TextStyle(color: tp.primaryColor)),
+                  title: Text("Exportar PDF (vista actual)", style: TextStyle(color: tp.primaryColor)),
                   onTap: () async {
                     Navigator.pop(context);
                     await _exportPdf();
@@ -1274,7 +1430,6 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
 
               const Divider(),
 
-              // Nuevo mapa
               if (_rootNode != null)
                 ListTile(
                   leading: Icon(Icons.refresh, color: tp.primaryColor),
@@ -1285,11 +1440,10 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
                   },
                 ),
 
-              // Completar sesión
               if (widget.idSesion != null && _nodesCreated > 0)
                 ListTile(
-                  leading: Icon(Icons.check_circle, color: Colors.green),
-                  title: Text("Completar sesión", style: TextStyle(color: Colors.green)),
+                  leading: const Icon(Icons.check_circle, color: Colors.green),
+                  title: const Text("Completar sesión", style: TextStyle(color: Colors.green)),
                   onTap: () async {
                     Navigator.pop(context);
                     await _confirmarFinalizarSesion();
@@ -1298,7 +1452,6 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
 
               const Divider(),
 
-              // Botón cerrar menú
               ListTile(
                 leading: Icon(Icons.close, color: tp.primaryColor),
                 title: Text("Cerrar menú", style: TextStyle(color: tp.primaryColor)),
@@ -1307,7 +1460,6 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
             ],
           ),
         ),
-
         body: Container(
           width: double.infinity,
           color: tp.backgroundColor,
