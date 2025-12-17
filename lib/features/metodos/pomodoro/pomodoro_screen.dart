@@ -178,6 +178,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
       
       final nuevaSesion = Sesion(
         idUsuario: userId,
+        idMetodo: 1,
         nombreSesion: 'Sesión Rápida (Pomodoro)',
         fecha: _sesionInicioFecha!, // ✅ Usar fecha de inicio
         esRapida: true,

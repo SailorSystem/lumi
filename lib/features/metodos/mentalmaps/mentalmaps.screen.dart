@@ -698,6 +698,7 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
 
       final nuevaSesion = Sesion(
         idUsuario: userId,
+        idMetodo: 3,
         nombreSesion: 'Sesión Rápida (Mapa Mental)',
         fecha: _sesionInicioFecha!,
         esRapida: true,

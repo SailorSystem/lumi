@@ -5,12 +5,16 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/providers/theme_provider.dart';
 import '../../core/services/sesion_service.dart';
+import '../../core/services/tema_service.dart';
 import '../../core/services/usuario_service.dart';
 import '../../core/models/sesion.dart';
 import '../../core/models/usuario.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/services/connectivity_service.dart';
 import '../../widgets/no_connection_dialog.dart';
+import '../../core/models/tema.dart';
+import '../../core/services/tema_service.dart';
+import 'package:lumi_app/core/services/tema_service.dart';
 
 class StatsScreen extends StatefulWidget {
   const StatsScreen({Key? key}) : super(key: key);
@@ -69,11 +73,12 @@ class StatsScreenState extends State<StatsScreen> {
     });
 
     try {
+      // Obtener userId de SharedPreferences
       final prefs = await SharedPreferences.getInstance();
       userId = prefs.getInt('user_id');
-
       print('👤 UserID desde SharedPreferences: $userId');
 
+      // Si no hay userId, buscar en Supabase
       if (userId == null) {
         print('⚠️ No hay userId, buscando usuario en Supabase...');
         try {
@@ -96,7 +101,7 @@ class StatsScreenState extends State<StatsScreen> {
         return;
       }
 
-      // 🔌 comprobar conexión antes de ir a Supabase
+      // Verificar conexión
       final conectado = await ConnectivityService.verificarConexion();
       if (!conectado) {
         if (mounted) {
@@ -122,27 +127,34 @@ class StatsScreenState extends State<StatsScreen> {
       totalRapidas = 0;
       todosTemas = [];
 
-      // ✅ CARGAR TEMAS CON RETRY
-      // ✅ CARGAR TEMAS DESDE SharedPreferences (ya no desde Supabase)
+      // ======================
+      // Cargar temas con retry
+      // ======================
       try {
-        print('🎨 Cargando temas locales...');
-        final prefs = await SharedPreferences.getInstance();
-        final materiasJson = prefs.getStringList('materias') ?? [];
-        final temas = materiasJson
-            .map((e) => Map<String, dynamic>.from(json.decode(e)))
-            .toList();
-        todosTemas = temas;
-        print('✅ Temas locales cargados: ${todosTemas.length}');
+        print('🎨 Cargando temas desde Supabase...');
+        final temas = await ConnectivityService.ejecutarConReintento(
+          operacion: () => TemaService.obtenerTemasPorUsuario(userId!),
+          intentosMaximos: 3,
+        ) ?? [];
+
+        // Forzar tipo y mapear
+        todosTemas = temas.cast<Tema>().map((t) => {
+          'id_tema': t.idTema,
+          'nombre': t.nombre,
+          'color': t.color,
+        }).toList();
+
+        print('✅ Temas cargados: ${todosTemas.length}');
       } catch (e) {
-        print('❌ Error cargando temas locales: $e');
+        print('❌ Error cargando temas: $e');
         todosTemas = [];
       }
 
-
-      // ✅ CARGAR SESIONES CON RETRY
+      // ==========================
+      // Cargar sesiones con retry
+      // ==========================
       try {
         print('🌐 Cargando sesiones desde Supabase con userId=$userId...');
-
         final response = await ConnectivityService.ejecutarConReintento(
           operacion: () => Supabase.instance.client
               .from('sesiones')
@@ -152,25 +164,27 @@ class StatsScreenState extends State<StatsScreen> {
           intentosMaximos: 3,
         );
 
-        print('📦 Respuesta de Supabase: ${response.length} sesiones encontradas');
+        if (response != null) {
+          print('📦 Respuesta de Supabase: ${response.length} sesiones encontradas');
 
-        for (var json in response) {
-          try {
-            final sesion = Sesion(
-              idSesion: json['id_sesion'] as int?,
-              idUsuario: json['id_usuario'] as int,
-              idMetodo: json['id_metodo'] as int?,
-              idTema: json['id_tema'] as int?,
-              nombreSesion: json['nombre_sesion'] as String? ?? 'Sesión',
-              fecha: DateTime.parse(json['fecha'] as String),
-              esRapida: json['es_rapida'] as bool? ?? false,
-              duracionTotal: json['duracion_total'] as int?,
-              estado: json['estado'] as String? ?? 'programada',
-            );
+          for (var json in response) {
+            try {
+              final sesion = Sesion(
+                idSesion: json['id_sesion'] as int?,
+                idUsuario: json['id_usuario'] as int,
+                idMetodo: json['id_metodo'] as int?,
+                idTema: json['id_tema'] as int?,
+                nombreSesion: json['nombre_sesion'] as String? ?? 'Sesión',
+                fecha: DateTime.parse(json['fecha'] as String),
+                esRapida: json['es_rapida'] as bool? ?? false,
+                duracionTotal: json['duracion_total'] as int?,
+                estado: json['estado'] as String? ?? 'programada',
+              );
 
-            todasSesiones.add(sesion);
-          } catch (e) {
-            print('❌ Error parseando sesión: $e');
+              todasSesiones.add(sesion);
+            } catch (e) {
+              print('❌ Error parseando sesión: $e');
+            }
           }
         }
 
@@ -180,7 +194,9 @@ class StatsScreenState extends State<StatsScreen> {
         todasSesiones = [];
       }
 
+      // ==========================
       // Calcular estadísticas
+      // ==========================
       totalSesiones = todasSesiones.length;
       totalFinalizadas =
           todasSesiones.where((s) => s.estado == 'finalizada').length;
@@ -216,10 +232,8 @@ class StatsScreenState extends State<StatsScreen> {
       temp = List<Sesion>.from(todasSesiones);
     } else {
       temp = todasSesiones.where((s) {
-        final id = s.idTema;
-        if (id == null) return false;
-        // aquí temasSeleccionados debe contener el MISMO id que s.idTema
-        return temasSeleccionados.contains(id);
+        if (s.idTema == null) return false;
+        return temasSeleccionados.contains(s.idTema);
       }).toList();
     }
 
@@ -320,41 +334,26 @@ class StatsScreenState extends State<StatsScreen> {
                           shrinkWrap: true,
                           itemCount: todosTemas.length,
                           itemBuilder: (context, index) {
-                          final tema = todosTemas[index];
-                          final idTema = index; 
-                          final nombre = (tema['nombre'] ?? 'Tema ${index + 1}') as String;
-                          final colorHex = tema['color_hex'] as String?;
-                            // ✅ AGREGAR: Log para ver qué se está renderizando
-                            print('🎨 Renderizando tema $index: id=$idTema, nombre=$nombre');
-                            
-                            // Parsear color desde hex
-                            Color temaColor = primary;
-                            if (colorHex != null && colorHex.isNotEmpty) {
-                              try {
-                                String hexColor = colorHex;
-                                if (hexColor.startsWith('#')) {
-                                  hexColor = hexColor.replaceFirst('#', '0xFF');
-                                } else if (!hexColor.startsWith('0x')) {
-                                  hexColor = '0xFF$hexColor';
-                                }
-                                temaColor = Color(int.parse(hexColor));
-                              } catch (e) {
-                                print('❌ Error parseando color: $e');
-                              }
-                            }
-                                                                              
-                            final isSelected = temasSeleccionados.contains(idTema);
-                            
+                            final tema = todosTemas[index];
+                            final int idTema = tema['id_tema'] as int;
+                            final String nombre = tema['nombre'] ?? 'Tema';
+                            final int? colorValue = tema['color'] is int
+                                ? tema['color']
+                                : int.tryParse(tema['color']?.toString() ?? '');
+
+                            final Color temaColor =
+                                colorValue != null ? Color(colorValue) : primary;
+
+                            final bool isSelected = temasSeleccionados.contains(idTema);
+
                             return Padding(
                               padding: const EdgeInsets.only(bottom: 8),
                               child: InkWell(
                                 onTap: () {
                                   setModalState(() {
-                                    if (isSelected) {
-                                      temasSeleccionados.remove(idTema);
-                                    } else {
-                                      temasSeleccionados.add(idTema);
-                                    }
+                                    isSelected
+                                        ? temasSeleccionados.remove(idTema)
+                                        : temasSeleccionados.add(idTema);
                                   });
                                 },
                                 borderRadius: BorderRadius.circular(12),
@@ -385,26 +384,21 @@ class StatsScreenState extends State<StatsScreen> {
                                         child: Text(
                                           nombre,
                                           style: TextStyle(
-                                            color: textColor,
-                                            fontWeight: isSelected
-                                                ? FontWeight.w600
-                                                : FontWeight.w500,
-                                            fontSize: 15,
+                                            fontWeight:
+                                                isSelected ? FontWeight.w600 : FontWeight.w500,
                                           ),
                                         ),
                                       ),
                                       if (isSelected)
-                                        Icon(
-                                          Icons.check_circle,
-                                          color: temaColor,
-                                          size: 20,
-                                        ),
+                                        Icon(Icons.check_circle, color: temaColor),
                                     ],
                                   ),
                                 ),
                               ),
                             );
                           },
+                       
+                       
                         ),
                       ),
                     
@@ -644,19 +638,14 @@ class StatsScreenState extends State<StatsScreen> {
                   spacing: 8,
                   runSpacing: 8,
                   children: temasSeleccionados.map((idTema) {
-                    final idx = idTema as int;
-                    Map<String, dynamic> tema;
-                    if (idx >= 0 && idx < todosTemas.length) {
-                      tema = todosTemas[idx];
-                    } else {
-                      tema = {};
-                    }
+                    final tema = todosTemas.firstWhere(
+                      (t) => t['id_tema'] == idTema,
+                      orElse: () => {'nombre': 'Tema $idTema', 'color': primary.value},
+                    );
+
                     return Chip(
-                      label: Text(
-                        (tema['nombre'] as String?) ?? 'Tema $idTema',
-                        style: const TextStyle(fontSize: 12),
-                      ),
-                      backgroundColor: primary.withOpacity(0.2),
+                      label: Text(tema['nombre'] as String),
+                      backgroundColor: Color(tema['color'] as int).withOpacity(0.2),
                       deleteIcon: const Icon(Icons.close, size: 16),
                       onDeleted: () {
                         setState(() {

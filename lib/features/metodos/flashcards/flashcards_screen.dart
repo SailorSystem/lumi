@@ -359,6 +359,7 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
 
       final nuevaSesion = Sesion(
         idUsuario: userId,
+        idMetodo: 2,
         nombreSesion: 'Sesión Rápida (Flashcards)',
         fecha: _sesionInicioFecha!,
         esRapida: true,

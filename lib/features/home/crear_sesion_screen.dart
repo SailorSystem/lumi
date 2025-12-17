@@ -12,6 +12,8 @@ import '../../core/providers/theme_provider.dart';
 import '../../core/services/notification_service.dart';
 import '../../core/services/connectivity_service.dart';
 import '../../widgets/no_connection_dialog.dart';
+import '../../core/services/tema_service.dart';
+import '../../core/models/tema.dart';
 
 class CrearNuevaSesionScreen extends StatefulWidget {
   const CrearNuevaSesionScreen({super.key});
@@ -135,35 +137,11 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
     final confirmado = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Icon(Icons.warning_amber, color: Colors.orange),
-            const SizedBox(width: 8),
-            const Expanded(                    // 👈 clave para evitar overflow
-              child: Text(
-                '¿Eliminar materia?',
-                style: TextStyle(fontWeight: FontWeight.w600),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ],
-        ),
-        content: Text(
-          'Se eliminará "${materia['nombre']}" permanentemente.\n\n¿Estás seguro?',
-        ),
+        title: const Text('¿Eliminar materia?'),
+        content: Text('Se eliminará "${materia['nombre']}" permanentemente.'),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancelar'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.redAccent,
-              foregroundColor: Colors.white,
-            ),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Eliminar'),
           ),
@@ -172,19 +150,16 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
     );
 
     if (confirmado == true) {
+      final idTema = materia['id'] as int?;
+      if (idTema != null) await TemaService.borrarTema(idTema);
+
       setState(() {
-        _materias.removeWhere((m) => m['id'] == materia['id']);
-        if (materiaSel?['id'] == materia['id']) {
-          materiaSel = null;
-        }
+        _materias.removeWhere((m) => m['id'] == idTema);
+        if (materiaSel?['id'] == idTema) materiaSel = null;
       });
-      await _saveMaterias();
-      _recalcularCanSave();
     }
 
-    if (Navigator.canPop(sheetCtx)) {
-      Navigator.pop(sheetCtx);
-    }
+    if (Navigator.canPop(sheetCtx)) Navigator.pop(sheetCtx);
   }
 
 
@@ -265,20 +240,21 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
 
   Future<void> _loadMaterias() async {
     final prefs = await SharedPreferences.getInstance();
-    final materiasJson = prefs.getStringList('materias') ?? [];
+    final userId = prefs.getInt('user_id');
+    if (userId == null) return;
 
-    if (materiasJson.isEmpty) {
-      await _saveMaterias();
-    } else {
-      setState(() {
-        _materias = materiasJson.map((e) => Map<String, dynamic>.from(json.decode(e))).toList();
-        if (materiaSel != null) {
-          final m = _materias.where((t) => t['id'] == materiaSel!['id']);
-          if (m.isNotEmpty) materiaSel = m.first;
-        }
-      });
-    }
+    final temas = await TemaService.obtenerTemasPorUsuario(userId);
+
+    setState(() {
+      _materias = temas.map((t) => {
+        'id': t.idTema,
+        'nombre': t.nombre,
+        'color': t.color,
+        'id_tema': t.idTema,
+      }).toList();
+    });
   }
+
 
   Future<void> _saveMaterias() async {
     final prefs = await SharedPreferences.getInstance();
@@ -286,10 +262,31 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
   }
 
   Future<void> _addMateria(Map<String, dynamic> materia) async {
-    _materias.add(materia);
-    await _saveMaterias();
-    setState(() => materiaSel = materia);
+    final prefs = await SharedPreferences.getInstance();
+    final userId = prefs.getInt('user_id');
+    if (userId == null) return;
+
+    // Crear en Supabase
+    final nuevoTema = Tema(
+      idUsuario: userId,
+      nombre: materia['nombre'] as String,
+      color: materia['color'] as int,
+    );
+
+    final creado = await TemaService.crearTema(nuevoTema);
+    if (creado != null) {
+      setState(() {
+        _materias.add({
+          'id': creado.idTema,
+          'nombre': creado.nombre,
+          'color': creado.color,
+          'id_tema': creado.idTema,
+        });
+        materiaSel = _materias.last;
+      });
+    }
   }
+
 
   Future<void> saveSession() async {
     print('🔵 saveSession() iniciado');
@@ -344,17 +341,18 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
       temaId = materiaSel!['id_tema'] as int?;
     }
 
-    final nueva = Sesion(
-      idSesion: null,
-      idUsuario: userId,
-      idMetodo: metodoId,
-      idTema: temaId,
-      nombreSesion: titleController.text.trim(),
-      fecha: selectedDateTime,
-      esRapida: false,
-      duracionTotal: selectedDuration.inSeconds,
-      estado: 'programada',
-    );
+  final nueva = Sesion(
+    idSesion: null,
+    idUsuario: userId,
+    idMetodo: _selectedMetodoId,
+    idTema: temaId,
+    nombreSesion: titleController.text.trim(),
+    fecha: selectedDateTime,
+    esRapida: false,
+    duracionTotal: selectedDuration.inSeconds,
+    estado: 'programada',
+  );
+
 
     try {
       final creada = await SesionService.crearSesion(nueva);

@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'core/services/notification_service.dart';
 import 'features/home/splash_screen.dart';
 import 'core/providers/theme_provider.dart';
+import 'core/services/sound_service.dart';
 
 Future<void> main() async {
   // ✅ Capturar errores globales
@@ -44,7 +45,8 @@ Future<void> main() async {
   // ✅ Inicializar tema
   final themeProvider = ThemeProvider();
   await themeProvider.initialize();
-  
+  await SoundService.isSoundEnabled();
+
   // ✅ Iniciar aplicación
   runApp(
     ChangeNotifierProvider.value(
