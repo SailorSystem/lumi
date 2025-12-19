@@ -28,8 +28,8 @@ import '../../core/services/mood_service.dart';
 import 'firstre_screen.dart';
 import '../../core/services/notification_service.dart';
 import '../../core/services/usage_tracker.dart';
-import '../../core/services/stats_usage_service.dart';
 import '../../widgets/no_connection_dialog.dart';
+import '../../widgets/sesion_time_dialog.dart';  
 
 
 class HomeScreen extends StatefulWidget {
@@ -49,10 +49,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   Timer? _tiempoUsoTimer;
   int _segundosAcumulados = 0;
   Timer? _verificadorSesiones; // ✅ Timer para verificar sesiones incompletas
-
+  Timer? _checkTimer;
   List<Sesion> _completedSessions = [];
   late final AnimationController _pulse;
-
+  List<Sesion> _sesionesProgramadas = [];
   int? _userId;
   String _userName = 'Usuario';
   int _estadoAnimo = 2; // Estado de ánimo por defecto (neutral)
@@ -67,40 +67,43 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   bool _showQuote = false;
   String _quote = '';
   Timer? _quoteTimer;
-
-  // 🔥 Nuevo estado para el filtro
   String _selectedFilter = "Más reciente";
+
+  DateTime _asLocalIgnoringZone(DateTime dt) {
+    // Toma los componentes (Y/M/D/H/M/S) y crea una fecha LOCAL con eso.
+    return DateTime(dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second);
+  }
 
   @override
   void initState() {
     super.initState();
+
     _pulse = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 2),
-      lowerBound: 0.8, // ✅ Rango más pequeño
+      lowerBound: 0.8,
       upperBound: 1.0,
     )..repeat(reverse: true);
 
     _loadUserData();
-    _loadCompletedSessions();
+    _loadCompletedSessions();     // ⬅️ ESTA ES LA ÚNICA QUE DEBE CARGAR SESIONES
     _iniciarTrackingTiempo();
-
+    _iniciarVerificacionSesiones();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkFirstTime();
     });
 
-    // ✅ AGREGAR: Verificador automático cada 1 minuto
     _verificadorSesiones = Timer.periodic(
       const Duration(minutes: 1),
       (_) => _marcarSesionesIncompletas().then((_) => _loadCompletedSessions()),
     );
 
-    // INICIO DE MEDICIÓN DE TIEMPO
     WidgetsBinding.instance.addObserver(this);
     _inicio = DateTime.now();
     _tiempoUsoTimer = Timer.periodic(const Duration(minutes: 1), _enviarTiempoUso);
   }
+
 
   @override
   void dispose() {
@@ -108,11 +111,139 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     _quoteTimer?.cancel();
     _tiempoUsoTimer?.cancel();
     _verificadorSesiones?.cancel(); // ✅ Cancelar el verificador
+    _checkTimer?.cancel();
 
     WidgetsBinding.instance.removeObserver(this);
     _enviarTiempoUsoFinal(); // Envía el tiempo pendiente al cerrar
     UsageTracker.detener();
     super.dispose();
+  }
+
+  Future<void> _loadSesionesProgramadas() async {
+    if (_userId == null) return;
+
+    try {
+      final sesiones = await SesionService.obtenerSesionesProgramadas(_userId!);
+
+      setState(() {
+        _sesionesProgramadas = sesiones;
+      });
+
+      print("📌 Sesiones programadas cargadas: ${_sesionesProgramadas.length}");
+    } catch (e) {
+      print("❌ Error cargando sesiones programadas: $e");
+    }
+  }
+
+  void _iniciarVerificacionSesiones() {
+    _checkTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
+      _verificarSesionesProgramadas();
+    });
+  }
+
+  void _verificarSesionesProgramadas() {
+    if (!mounted) return;
+    if (_dialogOpen) return;
+
+    final ahoraLocal = DateTime.now();
+
+    for (final sesion in _sesionesProgramadas) {
+      if (sesion.idSesion == null) continue;
+
+      if (sesion.esRapida == true) continue;
+      if (!["programada", "incompleta"].contains(sesion.estado)) continue;
+      if (_shownSesionIds.contains(sesion.idSesion)) continue;
+
+      // ✅ Interpretar lo guardado como HORA LOCAL (ignorando +00)
+      final fechaLocalLogica = _asLocalIgnoringZone(sesion.fecha);
+      final diffSec = fechaLocalLogica.difference(ahoraLocal).inSeconds;
+
+      // (debug temporal)
+      print('⏱ ahora=$ahoraLocal | fechaLocalLogica=$fechaLocalLogica | diffSec=$diffSec | id=${sesion.idSesion}');
+
+      if (diffSec <= 60 && diffSec > 0) {
+        _shownSesionIds.add(sesion.idSesion!);
+        _mostrarRecordatorioSesion(sesion, fechaLocalLogica);
+        break;
+      }
+
+      if (diffSec <= 0) {
+        _shownSesionIds.add(sesion.idSesion!);
+      }
+    }
+  }
+
+  final Set<int> _shownSesionIds = <int>{}; 
+  bool _dialogOpen = false;
+
+  void _mostrarRecordatorioSesion(Sesion sesion, DateTime fechaLocalLogica) async {
+    if (!mounted) return;
+    if (_dialogOpen) return;
+    _dialogOpen = true;
+
+    try {
+      await showSesionTimeDialog(
+        context,
+        nombreSesion: sesion.nombreSesion,
+        fechaLocal: fechaLocalLogica, // ✅ ya corregida
+        onSnooze: () => _posponerSesion(sesion),
+        onStart: () => _iniciarSesion(sesion),
+      );
+    } finally {
+      _dialogOpen = false;
+    }
+  }
+
+
+  void _iniciarSesion(Sesion sesion) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => StartScreen(idSesion: sesion.idSesion),
+      ),
+    );
+  }
+
+  void _posponerSesion(Sesion sesion) async {
+    _shownSesionIds.remove(sesion.idSesion); // Permitir futuros recordatorios
+    final nuevaFecha = sesion.fecha.add(const Duration(minutes: 5));
+
+    try {
+      // 1. Actualizar en BD (idSesion es int?, usamos !)
+      await SesionService.actualizarFechaSesion(sesion.idSesion!, nuevaFecha);
+
+      // 2. Crear nueva sesión actualizada
+      final nuevaSesion = Sesion(
+        idSesion: sesion.idSesion,
+        idUsuario: sesion.idUsuario,
+        idMetodo: sesion.idMetodo,
+        idTema: sesion.idTema,
+        nombreSesion: sesion.nombreSesion,
+        fecha: nuevaFecha,
+        esRapida: sesion.esRapida,
+        duracionTotal: sesion.duracionTotal,
+        estado: sesion.estado,
+      );
+
+      // 3. Reemplazarla en _sesionesProgramadas
+      setState(() {
+        final index = _sesionesProgramadas.indexWhere(
+            (s) => s.idSesion == sesion.idSesion);
+        if (index != -1) {
+          _sesionesProgramadas[index] = nuevaSesion;
+        }
+      });
+
+      // 4. Mostrar mensaje
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Sesión pospuesta 5 minutos'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    } catch (e) {
+      print('❌ Error posponiendo sesión: $e');
+    }
   }
 
   void _enviarTiempoUso(Timer timer) async {
@@ -145,6 +276,40 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         _segundosAcumulados = 0;
       }
     }
+  }
+
+  void _confirmarInicioSesion(Sesion session) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Text("¿Iniciar sesión programada?"),
+          content: Text(
+            "¿Quieres empezar ahora tu sesión programada para \"${session.nombreSesion}\"?",
+          ),
+          actions: [
+            TextButton(
+              child: const Text("Cancelar"),
+              onPressed: () => Navigator.pop(context),
+            ),
+            ElevatedButton(
+              child: const Text("Iniciar ahora"),
+              onPressed: () {
+                Navigator.pop(context);
+
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => StartScreen(idSesion: session.idSesion),
+                  ),
+                );
+              },
+            )
+          ],
+        );
+      },
+    );
   }
 
   @override
@@ -234,7 +399,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     }
   }
 
-
   Future<void> _loadCompletedSessions() async {
     print('🔄 Cargando sesiones programadas...');
     
@@ -283,7 +447,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
       setState(() {
         _completedSessions = sesiones;
+        _sesionesProgramadas = sesiones; // 🔥 ESTA LÍNEA ARREGLA TODO
       });
+
 
       print('📊 Sesiones mostradas en Home: ${_completedSessions.length}');
     } catch (e) {
@@ -292,7 +458,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         setState(() => _completedSessions = []);
         // sin SnackBar aquí, el usuario ya verá el modal cuando realmente no haya internet
       }
-    }
+  }
+
 
   Future<void> _eliminarSesion(Sesion sesion) async {
     final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
@@ -711,17 +878,17 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 
 
-  // ✅ NUEVO MÉTODO: Recargar sesiones con pull-to-refresh
-Future<void> _refreshSessions() async {
-  // Antes de llamar al servicio
-  final conectado = await ConnectivityService.verificarConexion();
-  if (!conectado) {
-    await showNoConnectionDialog(context);
-    // tras cerrar el modal, el usuario puede tocar de nuevo el botón
-    return;
+    // ✅ NUEVO MÉTODO: Recargar sesiones con pull-to-refresh
+  Future<void> _refreshSessions() async {
+    // Antes de llamar al servicio
+    final conectado = await ConnectivityService.verificarConexion();
+    if (!conectado) {
+      await showNoConnectionDialog(context);
+      // tras cerrar el modal, el usuario puede tocar de nuevo el botón
+      return;
+    }
+    await _loadCompletedSessions();
   }
-  await _loadCompletedSessions();
-}
 
   // ---------------------- FILTRO ----------------------
   void _applyFilter() {
@@ -1101,7 +1268,6 @@ Future<void> _refreshSessions() async {
     );
   }
 
-
   // --------------------- BURBUJA DE FRASE ------------------------
   Widget _motivationalBubble() {
     if (!_showQuote) return const SizedBox.shrink();
@@ -1252,125 +1418,121 @@ Future<void> _refreshSessions() async {
     final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
     final textColor = Theme.of(context).textTheme.bodyLarge?.color ?? Colors.black;
     final primary = themeProvider.primaryColor;
+    final fechaLocalLogica = _asLocalIgnoringZone(session.fecha);
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 14),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        color: themeProvider.cardColor,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: primary.withOpacity(0.12), width: 1),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.06),
-            blurRadius: 14,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-
-      // Usamos Row completo para controlar espacio
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        mainAxisAlignment: MainAxisAlignment.start,
-        children: [
-          // ------------------ ICONO ------------------
-          Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              color: primary.withOpacity(0.12),
-              shape: BoxShape.circle,
+    return GestureDetector(
+      onTap: () => _confirmarInicioSesion(session),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 14),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: themeProvider.cardColor,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: primary.withOpacity(0.12), width: 1),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.06),
+              blurRadius: 14,
+              offset: const Offset(0, 4),
             ),
-            child: Icon(Icons.event, color: primary, size: 22),
-          ),
+          ],
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          mainAxisAlignment: MainAxisAlignment.start,
+          children: [
+            // --- icono ---
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: primary.withOpacity(0.12),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(Icons.event, color: primary, size: 22),
+            ),
 
-          const SizedBox(width: 12),
+            const SizedBox(width: 12),
 
-          // ------------------ TÍTULO + FECHA + HORA (ÁREA FLEXIBLE) ------------------
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // título
-                Text(
-                  session.nombreSesion,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 15,
-                    color: textColor,
+            // --- info ---
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    session.nombreSesion,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 15,
+                      color: textColor,
+                    ),
                   ),
-                ),
-
-                const SizedBox(height: 4),
-
-                // fecha y hora en una línea flexible
-                Row(
-                  children: [
-                    Icon(Icons.calendar_today, size: 14, color: textColor.withOpacity(0.6)),
-                    const SizedBox(width: 4),
-                    Expanded(
-                      child: Text(
-                        '${session.fecha.day.toString().padLeft(2, '0')}/'
-                        '${session.fecha.month.toString().padLeft(2, '0')}/'
-                        '${session.fecha.year}',
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(fontSize: 12, color: textColor.withOpacity(0.75)),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Icon(Icons.calendar_today,
+                          size: 14, color: textColor.withOpacity(0.6)),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          '${fechaLocalLogica .day.toString().padLeft(2, '0')}/'
+                          '${fechaLocalLogica .month.toString().padLeft(2, '0')}/'
+                          '${fechaLocalLogica .year}',
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              fontSize: 12, color: textColor.withOpacity(0.75)),
+                        ),
                       ),
-                    ),
-                  ],
-                ),
-
-                const SizedBox(height: 2),
-
-                Row(
-                  children: [
-                    Icon(Icons.access_time, size: 14, color: textColor.withOpacity(0.6)),
-                    const SizedBox(width: 4),
-                    Text(
-                      '${session.fecha.hour.toString().padLeft(2, '0')}:'
-                      '${session.fecha.minute.toString().padLeft(2, '0')}',
-                      style: TextStyle(fontSize: 12, color: textColor.withOpacity(0.75)),
-                    ),
-                  ],
-                ),
-              ],
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Row(
+                    children: [
+                      Icon(Icons.access_time,
+                          size: 14, color: textColor.withOpacity(0.6)),
+                      const SizedBox(width: 4),
+                      Text(
+                        '${fechaLocalLogica .hour.toString().padLeft(2, '0')}:'
+                        '${fechaLocalLogica .minute.toString().padLeft(2, '0')}',
+                        style: TextStyle(
+                            fontSize: 12, color: textColor.withOpacity(0.75)),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
-          ),
 
-          const SizedBox(width: 6),
+            const SizedBox(width: 6),
 
-          // ------------------ BOTONES (ANCHO FIJO) ------------------
-          SizedBox(
-            width: 100, // 🔥 clave para evitar overflow
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                // Editar
-                IconButton(
-                  icon: Icon(Icons.edit, color: primary, size: 20),
-                  onPressed: () => _editarSesionModal(session),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                ),
-
-                // Eliminar
-                IconButton(
-                  icon: const Icon(Icons.delete, color: Colors.red, size: 20),
-                  onPressed: () => _eliminarSesion(session),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                ),
-              ],
+            // --- Botones ---
+            SizedBox(
+              width: 100,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  IconButton(
+                    icon: Icon(Icons.edit, color: primary, size: 20),
+                    onPressed: () => _editarSesionModal(session),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.delete, color: Colors.red, size: 20),
+                    onPressed: () => _eliminarSesion(session),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
-
 
 
   // --------------------------- SIN SESIONES ---------------------------

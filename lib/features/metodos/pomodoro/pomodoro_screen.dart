@@ -40,6 +40,9 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
   int tiempoTranscurrido = 0; // Tiempo total transcurrido
   bool tiempoEstipuladoCumplido = false;
   Timer? _timer;
+  DateTime? _inicioSesion; 
+  Timer? _timerConteo;
+  int _segundosTotales = 0; 
 
   @override
   void initState() {
@@ -47,6 +50,19 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
     _cargarDuracionEstipulada();
     _crearSesionRapidaSiNoExiste(); // ✅ AGREGAR ESTA LÍNEA
     _cargarPreferenciaInfo();
+    _iniciarConteoTiempo();
+
+  }
+
+  void _iniciarConteoTiempo() {
+    _inicioSesion = DateTime.now();
+    _timerConteo?.cancel();
+
+    _timerConteo = Timer.periodic(const Duration(seconds: 1), (_) {
+      _segundosTotales++;
+    });
+
+    print("⏱️ Contador iniciado en $_inicioSesion");
   }
 
   Future<void> _cargarPreferenciaInfo() async {
@@ -281,7 +297,10 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
     print('\n╔════════════════════════════════════════════════╗');
     print('║   INICIANDO FINALIZACIÓN DE SESIÓN POMODORO    ║');
     print('╚════════════════════════════════════════════════╝');
-    
+    // 🛑 Detener contador
+    _timerConteo?.cancel();
+    print("⏱️ Tiempo total registrado: $_segundosTotales segundos");
+
     final sesionId = _sesionRapidaId ?? widget.idSesion;
     
     print('📋 DATOS INICIALES:');
@@ -325,8 +344,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
           sesionId,
           {
             'estado': 'finalizada',
-            'duracion_total': duracionTotal,
-            'fecha': DateTime.now().toIso8601String(),
+            'duracion_total': _segundosTotales,
           },
         );
         print('   ✅ Sesión actualizada en BD');

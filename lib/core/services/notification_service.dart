@@ -140,6 +140,7 @@ class NotificationService {
         androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
         uiLocalNotificationDateInterpretation:
             UILocalNotificationDateInterpretation.absoluteTime,
+        payload: 'reminder_$idSesion', // ✅ Agregar payload
       );
 
       print('✅ Recordatorio programado (ID: ${idSesion * 10 + 1})');

@@ -13,8 +13,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/services/connectivity_service.dart';
 import '../../widgets/no_connection_dialog.dart';
 import '../../core/models/tema.dart';
-import '../../core/services/tema_service.dart';
-import 'package:lumi_app/core/services/tema_service.dart';
 
 class StatsScreen extends StatefulWidget {
   const StatsScreen({Key? key}) : super(key: key);
@@ -23,7 +21,7 @@ class StatsScreen extends StatefulWidget {
   StatsScreenState createState() => StatsScreenState();
 }
 
-class StatsScreenState extends State<StatsScreen> {
+class StatsScreenState extends State<StatsScreen> with SingleTickerProviderStateMixin {
   bool loading = true;
   int? userId;
   
@@ -32,7 +30,7 @@ class StatsScreenState extends State<StatsScreen> {
   List<Sesion> sesionesFiltradas = [];
 
   List<Map<String, dynamic>> todosTemas = [];
-  List<int> temasSeleccionados = []; // IDs de temas seleccionados
+  List<int> temasSeleccionados = [];
 
   // ✅ Estadísticas actualizadas
   int totalFinalizadas = 0;
@@ -40,12 +38,23 @@ class StatsScreenState extends State<StatsScreen> {
   int totalRapidas = 0;
   int totalSesiones = 0;
   
+  // 🆕 Nuevas métricas
+  int tiempoTotalMinutos = 0;
+  int promedioSesionMinutos = 0;
+  int racha = 0;
+  int mejorRacha = 0;
+  Map<String, int> temasEstadisticas = {}; // Tema más usado
+  String temaMasUsado = 'N/A';
+  
   // Filtros
   String ordenSeleccionado = 'Más reciente';
-  String tipoSeleccionado = 'Todas'; // ✅ Actualizado
-  String filtroGrafico = 'Semana'; // Opciones: Semana, Mes, General
+  String tipoSeleccionado = 'Todas';
+  String filtroGrafico = 'Semana';
+  
+  // 🆕 Vista seleccionada (tabs)
+  int _selectedTab = 0;
+  late TabController _tabController;
 
-  // ✅ Lista de tipos de filtro
   final List<String> tiposFiltro = [
     'Todas',
     'Finalizadas',
@@ -60,9 +69,22 @@ class StatsScreenState extends State<StatsScreen> {
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 3, vsync: this);
+    _tabController.addListener(() {
+      setState(() {
+        _selectedTab = _tabController.index;
+      });
+    });
+    
     WidgetsBinding.instance.addPostFrameCallback((_) {
       loadStats();
     });
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
   }
 
   Future<void> loadStats() async {
@@ -73,20 +95,15 @@ class StatsScreenState extends State<StatsScreen> {
     });
 
     try {
-      // Obtener userId de SharedPreferences
       final prefs = await SharedPreferences.getInstance();
       userId = prefs.getInt('user_id');
-      print('👤 UserID desde SharedPreferences: $userId');
 
-      // Si no hay userId, buscar en Supabase
       if (userId == null) {
-        print('⚠️ No hay userId, buscando usuario en Supabase...');
         try {
           final usuarios = await UsuarioService.getTodos();
           if (usuarios.isNotEmpty) {
             userId = usuarios.first.idUsuario;
             await prefs.setInt('user_id', userId!);
-            print('✅ Usuario encontrado en Supabase: $userId');
           }
         } catch (e) {
           print('❌ Error obteniendo usuarios: $e');
@@ -94,21 +111,18 @@ class StatsScreenState extends State<StatsScreen> {
       }
 
       if (userId == null) {
-        print('❌ No hay userId disponible, saliendo...');
         setState(() {
           loading = false;
         });
         return;
       }
 
-      // Verificar conexión
       final conectado = await ConnectivityService.verificarConexion();
       if (!conectado) {
         if (mounted) {
           await showNoConnectionDialog(
             context,
-            message:
-                'No se pudieron cargar las estadísticas. Revisa tu conexión.',
+            message: 'No se pudieron cargar las estadísticas. Revisa tu conexión.',
           );
         }
         setState(() {
@@ -119,42 +133,35 @@ class StatsScreenState extends State<StatsScreen> {
         return;
       }
 
-      // Limpiar datos antiguos
+      // Limpiar datos
       todasSesiones = [];
       totalSesiones = 0;
       totalFinalizadas = 0;
       totalIncompletas = 0;
       totalRapidas = 0;
       todosTemas = [];
+      tiempoTotalMinutos = 0;
+      promedioSesionMinutos = 0;
 
-      // ======================
-      // Cargar temas con retry
-      // ======================
+      // Cargar temas
       try {
-        print('🎨 Cargando temas desde Supabase...');
         final temas = await ConnectivityService.ejecutarConReintento(
           operacion: () => TemaService.obtenerTemasPorUsuario(userId!),
           intentosMaximos: 3,
         ) ?? [];
 
-        // Forzar tipo y mapear
         todosTemas = temas.cast<Tema>().map((t) => {
           'id_tema': t.idTema,
           'nombre': t.nombre,
           'color': t.color,
         }).toList();
-
-        print('✅ Temas cargados: ${todosTemas.length}');
       } catch (e) {
         print('❌ Error cargando temas: $e');
         todosTemas = [];
       }
 
-      // ==========================
-      // Cargar sesiones con retry
-      // ==========================
+      // Cargar sesiones
       try {
-        print('🌐 Cargando sesiones desde Supabase con userId=$userId...');
         final response = await ConnectivityService.ejecutarConReintento(
           operacion: () => Supabase.instance.client
               .from('sesiones')
@@ -165,8 +172,6 @@ class StatsScreenState extends State<StatsScreen> {
         );
 
         if (response != null) {
-          print('📦 Respuesta de Supabase: ${response.length} sesiones encontradas');
-
           for (var json in response) {
             try {
               final sesion = Sesion(
@@ -187,28 +192,19 @@ class StatsScreenState extends State<StatsScreen> {
             }
           }
         }
-
-        print('📊 Total de sesiones cargadas: ${todasSesiones.length}');
       } catch (e) {
         print('❌ Error Supabase: $e');
         todasSesiones = [];
       }
 
-      // ==========================
-      // Calcular estadísticas
-      // ==========================
+      // Calcular estadísticas básicas
       totalSesiones = todasSesiones.length;
-      totalFinalizadas =
-          todasSesiones.where((s) => s.estado == 'finalizada').length;
-      totalIncompletas =
-          todasSesiones.where((s) => s.estado == 'incompleta').length;
+      totalFinalizadas = todasSesiones.where((s) => s.estado == 'finalizada').length;
+      totalIncompletas = todasSesiones.where((s) => s.estado == 'incompleta').length;
       totalRapidas = todasSesiones.where((s) => s.esRapida).length;
 
-      print('📈 ESTADÍSTICAS FINALES:');
-      print('   Total: $totalSesiones');
-      print('   Finalizadas: $totalFinalizadas');
-      print('   Incompletas: $totalIncompletas');
-      print('   Rápidas: $totalRapidas');
+      // 🆕 Calcular métricas avanzadas
+      _calcularMetricas();
 
       aplicarFiltros();
     } catch (e) {
@@ -217,16 +213,130 @@ class StatsScreenState extends State<StatsScreen> {
       setState(() {
         loading = false;
       });
-      print('✅ Carga completada');
     }
   }
 
+  // 🆕 Método para calcular métricas avanzadas
+  void _calcularMetricas() {
+    // Tiempo total y promedio
+    int tiempoTotalSegundos = 0;
+    int sesionesConDuracion = 0;
+    
+    for (var sesion in todasSesiones) {
+      if (sesion.duracionTotal != null && sesion.duracionTotal! > 0) {
+        tiempoTotalSegundos += sesion.duracionTotal!;
+        sesionesConDuracion++;
+      }
+    }
+    
+    tiempoTotalMinutos = (tiempoTotalSegundos / 60).round();
+    promedioSesionMinutos = sesionesConDuracion > 0 
+        ? (tiempoTotalSegundos / sesionesConDuracion / 60).round() 
+        : 0;
+
+    // Calcular racha actual y mejor racha
+    _calcularRachas();
+
+    // Calcular tema más usado
+    _calcularTemaMasUsado();
+  }
+
+  // 🆕 Calcular rachas de días consecutivos
+  void _calcularRachas() {
+    if (todasSesiones.isEmpty) {
+      racha = 0;
+      mejorRacha = 0;
+      return;
+    }
+
+    final sesionesOrdenadas = todasSesiones
+        .where((s) => s.estado == 'finalizada')
+        .toList()
+      ..sort((a, b) => b.fecha.compareTo(a.fecha));
+
+    if (sesionesOrdenadas.isEmpty) {
+      racha = 0;
+      mejorRacha = 0;
+      return;
+    }
+
+    Set<String> diasUnicos = {};
+    for (var sesion in sesionesOrdenadas) {
+      final dia = '${sesion.fecha.year}-${sesion.fecha.month}-${sesion.fecha.day}';
+      diasUnicos.add(dia);
+    }
+
+    final diasOrdenados = diasUnicos.toList()..sort((a, b) => b.compareTo(a));
+    
+    // Calcular racha actual
+    final hoy = DateTime.now();
+    final hoyStr = '${hoy.year}-${hoy.month}-${hoy.day}';
+    final ayerStr = '${hoy.subtract(const Duration(days: 1)).year}-${hoy.subtract(const Duration(days: 1)).month}-${hoy.subtract(const Duration(days: 1)).day}';
+    
+    racha = 0;
+    if (diasOrdenados.first == hoyStr || diasOrdenados.first == ayerStr) {
+      DateTime diaActual = diasOrdenados.first == hoyStr 
+          ? hoy 
+          : hoy.subtract(const Duration(days: 1));
+      
+      for (var dia in diasOrdenados) {
+        final diaEsperado = '${diaActual.year}-${diaActual.month}-${diaActual.day}';
+        if (dia == diaEsperado) {
+          racha++;
+          diaActual = diaActual.subtract(const Duration(days: 1));
+        } else {
+          break;
+        }
+      }
+    }
+
+    // Calcular mejor racha
+    mejorRacha = 0;
+    int rachaTemp = 1;
+    
+    for (int i = 0; i < diasOrdenados.length - 1; i++) {
+      final diaActual = DateTime.parse(diasOrdenados[i]);
+      final diaSiguiente = DateTime.parse(diasOrdenados[i + 1]);
+      
+      if (diaActual.difference(diaSiguiente).inDays == 1) {
+        rachaTemp++;
+      } else {
+        if (rachaTemp > mejorRacha) mejorRacha = rachaTemp;
+        rachaTemp = 1;
+      }
+    }
+    if (rachaTemp > mejorRacha) mejorRacha = rachaTemp;
+  }
+
+  // 🆕 Calcular tema más usado
+  void _calcularTemaMasUsado() {
+    temasEstadisticas = {};
+    
+    for (var sesion in todasSesiones) {
+      if (sesion.idTema != null) {
+        temasEstadisticas[sesion.idTema.toString()] = 
+            (temasEstadisticas[sesion.idTema.toString()] ?? 0) + 1;
+      }
+    }
+
+    if (temasEstadisticas.isEmpty) {
+      temaMasUsado = 'N/A';
+      return;
+    }
+
+    final idTemaMasUsado = temasEstadisticas.entries
+        .reduce((a, b) => a.value > b.value ? a : b)
+        .key;
+
+    final tema = todosTemas.firstWhere(
+      (t) => t['id_tema'].toString() == idTemaMasUsado,
+      orElse: () => {'nombre': 'Desconocido'},
+    );
+
+    temaMasUsado = tema['nombre'] as String;
+  }
 
   void aplicarFiltros() {
-    print('🔍 Aplicando filtros: $tipoSeleccionado, $ordenSeleccionado');
-    print('🎨 Temas seleccionados: $temasSeleccionados');
-
-    // 1) Filtrar por tema usando idTema real
     List<Sesion> temp;
     if (temasSeleccionados.isEmpty) {
       temp = List<Sesion>.from(todasSesiones);
@@ -237,39 +347,29 @@ class StatsScreenState extends State<StatsScreen> {
       }).toList();
     }
 
-    // 2) Filtrar por tipo
     if (tipoSeleccionado == 'Todas') {
       sesionesFiltradas = temp;
     } else if (tipoSeleccionado == 'Finalizadas') {
-      sesionesFiltradas =
-          temp.where((s) => s.estado == 'finalizada').toList();
+      sesionesFiltradas = temp.where((s) => s.estado == 'finalizada').toList();
     } else if (tipoSeleccionado == 'Incompletas') {
-      sesionesFiltradas =
-          temp.where((s) => s.estado == 'incompleta').toList();
+      sesionesFiltradas = temp.where((s) => s.estado == 'incompleta').toList();
     } else if (tipoSeleccionado == 'Rápidas') {
       sesionesFiltradas = temp.where((s) => s.esRapida).toList();
     }
 
-    // 3) Orden
     if (ordenSeleccionado == 'Más reciente') {
       sesionesFiltradas.sort((a, b) => b.fecha.compareTo(a.fecha));
     } else if (ordenSeleccionado == 'Más antiguo') {
       sesionesFiltradas.sort((a, b) => a.fecha.compareTo(b.fecha));
     }
 
-    // 4) Recalcular stats sobre filtradas
     totalSesiones = sesionesFiltradas.length;
-    totalFinalizadas =
-        sesionesFiltradas.where((s) => s.estado == 'finalizada').length;
-    totalIncompletas =
-        sesionesFiltradas.where((s) => s.estado == 'incompleta').length;
-    totalRapidas =
-        sesionesFiltradas.where((s) => s.esRapida).length;
+    totalFinalizadas = sesionesFiltradas.where((s) => s.estado == 'finalizada').length;
+    totalIncompletas = sesionesFiltradas.where((s) => s.estado == 'incompleta').length;
+    totalRapidas = sesionesFiltradas.where((s) => s.esRapida).length;
 
-    print('✅ Sesiones filtradas: ${sesionesFiltradas.length}');
     sesionesVisibles = sesionesPorPagina;
   }
-
 
   Future<void> _mostrarModalTemas(Color cardColor, Color textColor, Color primary) async {
     await showModalBottomSheet(
@@ -306,10 +406,7 @@ class StatsScreenState extends State<StatsScreen> {
                                 temasSeleccionados.clear();
                               });
                             },
-                            child: Text(
-                              'Limpiar',
-                              style: TextStyle(color: primary),
-                            ),
+                            child: Text('Limpiar', style: TextStyle(color: primary)),
                           ),
                       ],
                     ),
@@ -341,8 +438,9 @@ class StatsScreenState extends State<StatsScreen> {
                                 ? tema['color']
                                 : int.tryParse(tema['color']?.toString() ?? '');
 
-                            final Color temaColor =
-                                colorValue != null ? Color(colorValue) : primary;
+                            final Color temaColor = colorValue != null 
+                                ? Color(colorValue) 
+                                : primary;
 
                             final bool isSelected = temasSeleccionados.contains(idTema);
 
@@ -384,8 +482,9 @@ class StatsScreenState extends State<StatsScreen> {
                                         child: Text(
                                           nombre,
                                           style: TextStyle(
-                                            fontWeight:
-                                                isSelected ? FontWeight.w600 : FontWeight.w500,
+                                            fontWeight: isSelected 
+                                                ? FontWeight.w600 
+                                                : FontWeight.w500,
                                           ),
                                         ),
                                       ),
@@ -397,8 +496,6 @@ class StatsScreenState extends State<StatsScreen> {
                               ),
                             );
                           },
-                       
-                       
                         ),
                       ),
                     
@@ -445,18 +542,15 @@ class StatsScreenState extends State<StatsScreen> {
   void cargarMasSesiones() {
     setState(() {
       sesionesVisibles += sesionesPorPagina;
-      print('📄 Mostrando $sesionesVisibles de ${sesionesFiltradas.length}');
     });
   }
 
   List<FlSpot> obtenerDatosGrafico() {
-    // ✅ Usar sesionesFiltradas en vez de todasSesiones
     if (sesionesFiltradas.isEmpty) return [];
     
     final ahora = DateTime.now();
     DateTime fechaInicio;
     
-    // Determinar rango según el filtro
     if (filtroGrafico == 'Semana') {
       fechaInicio = ahora.subtract(const Duration(days: 7));
     } else if (filtroGrafico == 'Mes') {
@@ -465,14 +559,12 @@ class StatsScreenState extends State<StatsScreen> {
       fechaInicio = DateTime(2000);
     }
     
-    // ✅ Filtrar sesiones YA FILTRADAS por temas
     final sesionesPorFecha = sesionesFiltradas
         .where((s) => s.fecha.isAfter(fechaInicio))
         .toList();
     
     if (sesionesPorFecha.isEmpty) return [];
     
-    // Agrupar sesiones por fecha
     Map<String, int> sesionesPorDia = {};
     
     for (var sesion in sesionesPorFecha) {
@@ -480,10 +572,8 @@ class StatsScreenState extends State<StatsScreen> {
       sesionesPorDia[key] = (sesionesPorDia[key] ?? 0) + 1;
     }
     
-    // Ordenar por fecha
     var sortedKeys = sesionesPorDia.keys.toList()..sort();
     
-    // Limitar puntos según filtro
     List<String> keysAMostrar;
     if (filtroGrafico == 'Semana') {
       keysAMostrar = sortedKeys.length > 7 
@@ -504,11 +594,8 @@ class StatsScreenState extends State<StatsScreen> {
       spots.add(FlSpot(i.toDouble(), sesionesPorDia[keysAMostrar[i]]!.toDouble()));
     }
     
-    print('📈 Gráfico con ${spots.length} puntos (filtro: $filtroGrafico, temas: ${temasSeleccionados.length})');
     return spots;
   }
-
-
 
   @override
   Widget build(BuildContext context) {
@@ -575,28 +662,102 @@ class StatsScreenState extends State<StatsScreen> {
             ),
           ),
         ),
+        bottom: TabBar(
+          controller: _tabController,
+          indicatorColor: primary,
+          labelColor: primary,
+          unselectedLabelColor: textColor.withOpacity(0.6),
+          tabs: const [
+            Tab(text: 'Resumen'),
+            Tab(text: 'Progreso'),
+            Tab(text: 'Historial'),
+          ],
+        ),
       ),
       body: RefreshIndicator(
         onRefresh: loadStats,
-        child: SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _buildResumenCard(cardColor, textColor, primary),
-              const SizedBox(height: 20),
-              _buildGraficoCard(cardColor, textColor, primary),
-              const SizedBox(height: 20),
-              _buildHistorialSection(cardColor, textColor, primary),
-            ],
-          ),
+        child: TabBarView(
+          controller: _tabController,
+          children: [
+            // 🆕 Tab 1: Resumen expandido
+            _buildResumenTab(cardColor, textColor, primary),
+            
+            // 🆕 Tab 2: Gráficos y progreso
+            _buildProgresoTab(cardColor, textColor, primary),
+            
+            // 🆕 Tab 3: Historial
+            _buildHistorialTab(cardColor, textColor, primary),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildResumenCard(Color cardColor, Color textColor, Color primary) {
+  // 🆕 Tab de resumen con métricas avanzadas
+  Widget _buildResumenTab(Color cardColor, Color textColor, Color primary) {
+    return SingleChildScrollView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Card de métricas principales
+          _buildMetricasCard(cardColor, textColor, primary),
+          
+          const SizedBox(height: 16),
+          
+          // Card de rachas
+          _buildRachasCard(cardColor, textColor, primary),
+          
+          const SizedBox(height: 16),
+          
+          // Card de tiempo de uso
+          _buildTiempoUsoCard(cardColor, textColor, primary),
+          
+          const SizedBox(height: 16),
+          
+          // Card de tema más usado
+          _buildTemaMasUsadoCard(cardColor, textColor, primary),
+        ],
+      ),
+    );
+  }
+
+  // 🆕 Tab de progreso con gráficos
+  Widget _buildProgresoTab(Color cardColor, Color textColor, Color primary) {
+    return SingleChildScrollView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _buildGraficoCard(cardColor, textColor, primary),
+          
+          const SizedBox(height: 16),
+          
+          // 🆕 Distribución por estado
+          _buildDistribucionEstadosCard(cardColor, textColor, primary),
+        ],
+      ),
+    );
+  }
+
+  // 🆕 Tab de historial
+  Widget _buildHistorialTab(Color cardColor, Color textColor, Color primary) {
+    return SingleChildScrollView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _buildHistorialSection(cardColor, textColor, primary),
+        ],
+      ),
+    );
+  }
+
+  // 🆕 Card de métricas principales
+  Widget _buildMetricasCard(Color cardColor, Color textColor, Color primary) {
     return Card(
       color: cardColor,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -606,19 +767,17 @@ class StatsScreenState extends State<StatsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ✅ AGREGAR: Row con título y botón de filtro
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  'Resumen',
+                  'Métricas Generales',
                   style: TextStyle(
                     color: primary,
                     fontSize: 20,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
-                // ✅ BOTÓN PARA FILTRAR POR TEMAS
                 IconButton(
                   icon: Icon(
                     Icons.filter_list,
@@ -630,7 +789,6 @@ class StatsScreenState extends State<StatsScreen> {
               ],
             ),
             
-            // ✅ AGREGAR: Mostrar temas seleccionados como chips
             if (temasSeleccionados.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 8, bottom: 8),
@@ -674,7 +832,423 @@ class StatsScreenState extends State<StatsScreen> {
     );
   }
 
-  
+  // 🆕 Card de rachas
+  Widget _buildRachasCard(Color cardColor, Color textColor, Color primary) {
+    return Card(
+      color: cardColor,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      elevation: 4,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.local_fire_department, color: Colors.orange, size: 28),
+                const SizedBox(width: 12),
+                Text(
+                  'Rachas',
+                  style: TextStyle(
+                    color: primary,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: Colors.orange.withOpacity(0.3),
+                        width: 2,
+                      ),
+                    ),
+                    child: Column(
+                      children: [
+                        Text(
+                          'Racha Actual',
+                          style: TextStyle(
+                            color: textColor.withOpacity(0.7),
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          '$racha',
+                          style: const TextStyle(
+                            color: Colors.orange,
+                            fontSize: 36,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          racha == 1 ? 'día' : 'días',
+                          style: TextStyle(
+                            color: textColor.withOpacity(0.6),
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.deepOrange.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: Colors.deepOrange.withOpacity(0.3),
+                        width: 2,
+                      ),
+                    ),
+                    child: Column(
+                      children: [
+                        Text(
+                          'Mejor Racha',
+                          style: TextStyle(
+                            color: textColor.withOpacity(0.7),
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          '$mejorRacha',
+                          style: const TextStyle(
+                            color: Colors.deepOrange,
+                            fontSize: 36,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          mejorRacha == 1 ? 'día' : 'días',
+                          style: TextStyle(
+                            color: textColor.withOpacity(0.6),
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (racha > 0)
+              Padding(
+                padding: const EdgeInsets.only(top: 16),
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: primary.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.emoji_events, color: primary, size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          racha >= 7
+                              ? '¡Increíble! Llevas $racha días seguidos 🎉'
+                              : '¡Sigue así! Ya llevas $racha ${racha == 1 ? 'día' : 'días'}',
+                          style: TextStyle(
+                            color: textColor,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // 🆕 Card de tiempo de uso
+  Widget _buildTiempoUsoCard(Color cardColor, Color textColor, Color primary) {
+    final horas = tiempoTotalMinutos ~/ 60;
+    final minutos = tiempoTotalMinutos % 60;
+    
+    return Card(
+      color: cardColor,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      elevation: 4,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.access_time, color: Colors.purple, size: 28),
+                const SizedBox(width: 12),
+                Text(
+                  'Tiempo de Estudio',
+                  style: TextStyle(
+                    color: primary,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: _tiempoItem(
+                    'Tiempo Total',
+                    horas > 0 ? '$horas h $minutos min' : '$minutos min',
+                    Colors.purple,
+                    textColor,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _tiempoItem(
+                    'Promedio',
+                    '$promedioSesionMinutos min',
+                    Colors.deepPurple,
+                    textColor,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _tiempoItem(String label, String value, Color color, Color textColor) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: color.withOpacity(0.3),
+          width: 2,
+        ),
+      ),
+      child: Column(
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              color: textColor.withOpacity(0.7),
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: TextStyle(
+              color: color,
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // 🆕 Card de tema más usado
+  Widget _buildTemaMasUsadoCard(Color cardColor, Color textColor, Color primary) {
+    final tema = todosTemas.firstWhere(
+      (t) => t['nombre'] == temaMasUsado,
+      orElse: () => {'color': primary.value},
+    );
+    
+    final temaColor = Color(tema['color'] as int);
+    final cantidadSesiones = temasEstadisticas[tema['id_tema']?.toString()] ?? 0;
+    
+    return Card(
+      color: cardColor,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      elevation: 4,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.star, color: Colors.amber, size: 28),
+                const SizedBox(width: 12),
+                Text(
+                  'Tema Favorito',
+                  style: TextStyle(
+                    color: primary,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: temaColor.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: temaColor.withOpacity(0.3),
+                  width: 2,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: temaColor,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          temaMasUsado,
+                          style: TextStyle(
+                            color: textColor,
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '$cantidadSesiones ${cantidadSesiones == 1 ? 'sesión' : 'sesiones'}',
+                          style: TextStyle(
+                            color: textColor.withOpacity(0.7),
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Icon(Icons.emoji_events, color: Colors.amber, size: 32),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // 🆕 Card de distribución por estados (gráfico de torta)
+  Widget _buildDistribucionEstadosCard(Color cardColor, Color textColor, Color primary) {
+    final totalSesionesGrafico = totalFinalizadas + totalIncompletas;
+    
+    if (totalSesionesGrafico == 0) {
+      return const SizedBox.shrink();
+    }
+    
+    final porcentajeFinalizadas = (totalFinalizadas / totalSesionesGrafico * 100).round();
+    final porcentajeIncompletas = 100 - porcentajeFinalizadas;
+    
+    return Card(
+      color: cardColor,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      elevation: 4,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Distribución de Sesiones',
+              style: TextStyle(
+                color: primary,
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _distribucionItem(
+                  'Finalizadas',
+                  '$porcentajeFinalizadas%',
+                  Colors.green,
+                  textColor,
+                ),
+                _distribucionItem(
+                  'Incompletas',
+                  '$porcentajeIncompletas%',
+                  Colors.orange,
+                  textColor,
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _distribucionItem(String label, String value, Color color, Color textColor) {
+    return Column(
+      children: [
+        Container(
+          width: 80,
+          height: 80,
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.1),
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: color,
+              width: 4,
+            ),
+          ),
+          child: Center(
+            child: Text(
+              value,
+              style: TextStyle(
+                color: color,
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Text(
+          label,
+          style: TextStyle(
+            color: textColor,
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _filtroBoton(String filtro, Color primary, Color cardColor, Color textColor) {
     final esSeleccionado = filtroGrafico == filtro;
     
@@ -710,7 +1284,6 @@ class StatsScreenState extends State<StatsScreen> {
   Widget _buildGraficoCard(Color cardColor, Color textColor, Color primary) {
     final spots = obtenerDatosGrafico();
     
-    // Obtener las fechas para las etiquetas
     final ahora = DateTime.now();
     DateTime fechaInicio;
     
@@ -722,11 +1295,6 @@ class StatsScreenState extends State<StatsScreen> {
       fechaInicio = DateTime(2000);
     }
     
-    final sesionesFiltradas = todasSesiones
-        .where((s) => s.fecha.isAfter(fechaInicio))
-        .toList();
-    
-    // ✅ Cambiar todasSesiones por sesionesFiltradas
     final sesionesPorFecha = sesionesFiltradas
         .where((s) => s.fecha.isAfter(fechaInicio))
         .toList();
@@ -747,13 +1315,12 @@ class StatsScreenState extends State<StatsScreen> {
     } else {
       keysAMostrar = sortedKeys.length > 60 ? sortedKeys.sublist(sortedKeys.length - 60) : sortedKeys;
     }
-    // ✅ Calcular el valor máximo para ajustar el intervalo del eje Y
+    
     double maxY = 0;
     if (spots.isNotEmpty) {
       maxY = spots.map((s) => s.y).reduce((a, b) => a > b ? a : b);
     }
     
-    // ✅ Determinar intervalo dinámico para evitar sobreposición
     double intervalo = 1;
     if (maxY > 20) {
       intervalo = 5;
@@ -772,23 +1339,15 @@ class StatsScreenState extends State<StatsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Progreso de Sesiones',
-                  style: TextStyle(
-                    color: primary,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
+            Text(
+              'Progreso de Sesiones',
+              style: TextStyle(
+                color: primary,
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+              ),
             ),
-            
             const SizedBox(height: 12),
-            
-            // ✅ BOTONES DE FILTRO
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -799,9 +1358,7 @@ class StatsScreenState extends State<StatsScreen> {
                 _filtroBoton('General', primary, cardColor, textColor),
               ],
             ),
-            
             const SizedBox(height: 20),
-            
             SizedBox(
               height: 200,
               child: spots.isEmpty
@@ -814,7 +1371,7 @@ class StatsScreenState extends State<StatsScreen> {
                   : LineChart(
                       LineChartData(
                         minY: 0,
-                        maxY: maxY + 1, // ✅ Agregar margen superior
+                        maxY: maxY + 1,
                         gridData: FlGridData(
                           show: true,
                           drawVerticalLine: false,
@@ -824,15 +1381,15 @@ class StatsScreenState extends State<StatsScreen> {
                           leftTitles: AxisTitles(
                             sideTitles: SideTitles(
                               showTitles: true,
-                              reservedSize: 35, // ✅ Reducido para evitar sobreposición
-                              interval: intervalo, // ✅ Intervalo dinámico
+                              reservedSize: 35,
+                              interval: intervalo,
                               getTitlesWidget: (value, meta) {
                                 if (value < 0 || value % intervalo != 0) return const SizedBox();
                                 return Text(
                                   value.toInt().toString(),
                                   style: TextStyle(
                                     color: textColor,
-                                    fontSize: 11, // ✅ Reducido
+                                    fontSize: 11,
                                     fontWeight: FontWeight.w500,
                                   ),
                                 );
@@ -843,8 +1400,8 @@ class StatsScreenState extends State<StatsScreen> {
                             sideTitles: SideTitles(
                               showTitles: true,
                               interval: filtroGrafico == 'General' 
-                                  ? (keysAMostrar.length / 10).ceilToDouble() // ✅ Mostrar menos etiquetas en General
-                                  : (filtroGrafico == 'Mes' ? 5 : 1), // Cada 5 días en Mes, todos en Semana
+                                  ? (keysAMostrar.length / 10).ceilToDouble()
+                                  : (filtroGrafico == 'Mes' ? 5 : 1),
                               getTitlesWidget: (value, meta) {
                                 final index = value.toInt();
                                 if (index < 0 || index >= keysAMostrar.length) {
@@ -852,24 +1409,17 @@ class StatsScreenState extends State<StatsScreen> {
                                 }
                                 
                                 final fecha = DateTime.parse(keysAMostrar[index]);
-                                
-                                // ✅ Formato según el filtro
-                                String label;
-                                if (filtroGrafico == 'General') {
-                                  label = '${fecha.day}/${fecha.month}';
-                                } else {
-                                  label = '${fecha.day}/${fecha.month}';
-                                }
+                                String label = '${fecha.day}/${fecha.month}';
                                 
                                 return Padding(
                                   padding: const EdgeInsets.only(top: 8),
                                   child: Transform.rotate(
-                                    angle: filtroGrafico == 'General' ? -0.5 : 0, // ✅ Rotar si es General
+                                    angle: filtroGrafico == 'General' ? -0.5 : 0,
                                     child: Text(
                                       label,
                                       style: TextStyle(
                                         color: textColor,
-                                        fontSize: 9, // ✅ Reducido
+                                        fontSize: 9,
                                       ),
                                     ),
                                   ),
@@ -884,7 +1434,7 @@ class StatsScreenState extends State<StatsScreen> {
                         lineBarsData: [
                           LineChartBarData(
                             spots: spots,
-                            isCurved: true, // ✅ Curvas suaves
+                            isCurved: true,
                             color: primary,
                             barWidth: 3,
                             isStrokeCapRound: true,
@@ -892,7 +1442,7 @@ class StatsScreenState extends State<StatsScreen> {
                               show: true,
                               getDotPainter: (spot, percent, barData, index) {
                                 return FlDotCirclePainter(
-                                  radius: 3, // ✅ Puntos más pequeños
+                                  radius: 3,
                                   color: primary,
                                   strokeWidth: 1.5,
                                   strokeColor: Colors.white,
@@ -913,7 +1463,6 @@ class StatsScreenState extends State<StatsScreen> {
       ),
     );
   }
-
 
   Widget _buildHistorialSection(Color cardColor, Color textColor, Color primary) {
     final sesionesAMostrar = sesionesFiltradas.take(sesionesVisibles).toList();
@@ -976,7 +1525,7 @@ class StatsScreenState extends State<StatsScreen> {
                         icon: Icon(Icons.filter_alt, color: primary),
                         dropdownColor: cardColor,
                         style: TextStyle(color: textColor, fontSize: 14),
-                        items: tiposFiltro // ✅ Usar la lista actualizada
+                        items: tiposFiltro
                             .map((tipo) => DropdownMenuItem(value: tipo, child: Text(tipo)))
                             .toList(),
                         onChanged: (value) {
@@ -1027,12 +1576,10 @@ class StatsScreenState extends State<StatsScreen> {
     );
   }
 
-  // ✅ Item de sesión actualizado con estados
   Widget _buildSesionItem(Sesion sesion, Color textColor, Color primary) {
     final fecha = '${sesion.fecha.day.toString().padLeft(2, '0')}/${sesion.fecha.month.toString().padLeft(2, '0')}/${sesion.fecha.year}';
     final hora = '${sesion.fecha.hour.toString().padLeft(2, '0')}:${sesion.fecha.minute.toString().padLeft(2, '0')}';
     
-    // ✅ Determinar color y texto según el estado
     Color estadoColor;
     String estadoTexto;
     
@@ -1058,7 +1605,6 @@ class StatsScreenState extends State<StatsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Primera fila: Icono, nombre y estado
           Row(
             children: [
               Container(
@@ -1104,8 +1650,6 @@ class StatsScreenState extends State<StatsScreen> {
               ),
             ],
           ),
-          
-          // Segunda fila: Fecha y hora
           const SizedBox(height: 8),
           Padding(
             padding: const EdgeInsets.only(left: 44),

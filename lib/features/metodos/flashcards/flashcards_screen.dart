@@ -47,6 +47,9 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
   DateTime? _sesionInicioFecha;
   bool _skipInfoFlashcards = false;
   late List<Flashcard> _originalDeck;
+  DateTime? _inicioSesion; 
+  Timer? _timerConteo;
+  int _segundosTotales = 0; 
 
   // Descanso
   int _restSeconds = 0;
@@ -56,7 +59,7 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
   void initState() {
     super.initState();
     _cargarDuracionEstipulada();
-    _iniciarContadorTiempo();
+    _iniciarConteoTiempo();
     _crearSesionRapidaSiNoExiste();
     _cargarPreferenciaInfo();
     _originalDeck = List.from(_flashcards);
@@ -400,21 +403,17 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
     }
   }
 
-  void _iniciarContadorTiempo() {
-    tiempoTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      setState(() {
-        tiempoTranscurrido++;
-      });
+  void _iniciarConteoTiempo() {
+    _inicioSesion = DateTime.now();
+    _timerConteo?.cancel();
 
-      if (!tiempoEstipuladoCumplido &&
-          duracionEstipulada != null &&
-          tiempoTranscurrido >= duracionEstipulada!) {
-        tiempoEstipuladoCumplido = true;
-        AudioPlayerService.play('assets/sounds/alert_finish.mp3');
-        _mostrarDialogoTiempoCumplido();
-      }
+    _timerConteo = Timer.periodic(const Duration(seconds: 1), (_) {
+      _segundosTotales++;
     });
+
+    print("⏱️ Contador iniciado en $_inicioSesion");
   }
+
 
   Future<void> _mostrarDialogoTiempoCumplido() async {
     final tp = Provider.of<ThemeProvider>(context, listen: false);
@@ -523,108 +522,61 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
   }
 
   Future<void> _finalizarSesion() async {
-    print('\n╔════════════════════════════════════════════════╗');
-    print('║   INICIANDO FINALIZACIÓN DE FLASHCARDS         ║');
-    print('╚════════════════════════════════════════════════╝');
+    print('\n===== FINALIZANDO FLASHCARDS =====');
 
     final sesionId = _sesionRapidaId ?? widget.idSesion;
 
-    print('📋 DATOS INICIALES:');
-    print('   _sesionRapidaId: $_sesionRapidaId');
-    print('   widget.idSesion: ${widget.idSesion}');
-    print('   sesionId final: $sesionId');
-    print('   Es sesión rápida: ${_sesionRapidaId != null}');
-
     if (sesionId == null) {
-      print('❌ ERROR: sesionId es null, abortando...\n');
+      print('❌ ERROR: sesionId es null');
       return;
     }
 
+    // 🛑 Detener contador
+    _timerConteo?.cancel();
+    print("⏱️ Tiempo total registrado: $_segundosTotales s");
+
     final prefs = await SharedPreferences.getInstance();
     final userId = prefs.getInt('user_id');
-    print('   userId: $userId');
 
     if (userId != null) {
-      print('\n😊 Actualizando estado de ánimo...');
       await MoodService.calcularYActualizarEstadoAnimo(userId);
-      print('   ✅ Estado de ánimo actualizado');
     }
 
     try {
-      print('\n🔄 ACTUALIZANDO SESIÓN EN BD...');
-      print('   Sesión ID: $sesionId');
-      print('   Datos a actualizar:');
-      print('   - estado: finalizada');
-      print('   - duracion_total: 0');
-      print('   - fecha: ${DateTime.now().toIso8601String()}');
+      print('🔄 Actualizando sesión...');
 
-      try {
-        await SesionService.actualizarSesion(
-          sesionId,
-          {
-            'estado': 'finalizada',
-            'duracion_total': 0,
-            'fecha': DateTime.now().toIso8601String(),
-          },
-        );
-        print('   ✅ Sesión actualizada en BD');
-      } catch (errorUpdate) {
-        print('   ❌ ERROR al actualizar sesión: $errorUpdate');
-        rethrow;
-      }
+      await SesionService.actualizarSesion(
+        sesionId,
+        {
+          'estado': 'finalizada',
+          'duracion_total': _segundosTotales,
+        },
+      );
 
-      print('\n📊 GUARDANDO ESTADÍSTICA...');
+      print("✅ Sesión guardada con $_segundosTotales segundos");
+
       if (userId != null) {
-        try {
-          final statGuardada = await StatService.registrarEstadistica(
-            idUsuario: userId,
-            idSesion: sesionId,
-            tiempoTotalSegundos: 0,
-            ciclosCompletados: 1,
-          );
-
-          if (statGuardada) {
-            print('   ✅ Estadística guardada correctamente');
-          } else {
-            print('   ⚠️ Estadística retornó false');
-          }
-        } catch (errorStat) {
-          print('   ❌ ERROR guardando estadística: $errorStat');
-        }
+        await StatService.registrarEstadistica(
+          idUsuario: userId,
+          idSesion: sesionId,
+          tiempoTotalSegundos: _segundosTotales,
+          ciclosCompletados: 1,
+        );
       }
-
-      print('\n╔════════════════════════════════════════════════╗');
-      print('║          ✅ FINALIZACIÓN EXITOSA               ║');
-      print('╚════════════════════════════════════════════════╝\n');
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('✅ Sesión de Flashcards completada'),
+            content: Text('✅ Sesión completada'),
             backgroundColor: Colors.green,
-            duration: Duration(seconds: 2),
           ),
         );
       }
-    } catch (e, stackTrace) {
-      print('\n╔════════════════════════════════════════════════╗');
-      print('║             ❌ ERROR CRÍTICO                   ║');
-      print('╚════════════════════════════════════════════════╝');
-      print('Error: $e');
-      print('Stack trace:');
-      print(stackTrace);
-      print('════════════════════════════════════════════════\n');
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error al guardar sesión: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+    } catch (e) {
+      print('❌ Error finalizando sesión: $e');
     }
   }
+
 
   Widget _buildCompletarButton() {
     final tp = Provider.of<ThemeProvider>(context);

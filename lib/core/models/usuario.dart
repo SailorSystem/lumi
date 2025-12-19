@@ -4,11 +4,13 @@ class Usuario {
   final int idUsuario;
   final String nombre;
   final int estadoAnimo; // 0, 1 o 2
+  final DateTime? fechaRegistro;
 
   Usuario({
     required this.idUsuario,
     required this.nombre,
     required this.estadoAnimo,
+    this.fechaRegistro,
   });
 
   // From DB
@@ -17,6 +19,9 @@ class Usuario {
       idUsuario: map['id_usuario'],
       nombre: map['nombre'],
       estadoAnimo: map['estado_animo'] ?? 1,
+      fechaRegistro: map['fecha_registro'] != null
+          ? DateTime.parse(map['fecha_registro'])
+          : null,
     );
   }
 

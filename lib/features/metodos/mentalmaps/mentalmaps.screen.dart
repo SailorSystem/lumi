@@ -66,6 +66,9 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
   DateTime? _sesionInicioFecha;
   bool _skipInfoMental = false;
   static const int _maxRenderDepth = 4;
+  DateTime? _inicioSesion; 
+  Timer? _timerConteo;
+  int _segundosTotales = 0; 
 
   final TransformationController _zoomController = TransformationController();
   double _currentScale = 1.0;
@@ -116,6 +119,8 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
     _iniciarContadorTiempo();
     _crearSesionRapidaSiNoExiste();
     _cargarPreferenciaInfo();
+    _iniciarConteoTiempo();
+
   }
 
   bool _removeNodeFromParent(MindNode parent, MindNode target) {
@@ -142,6 +147,17 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
     }
 
     return false;
+  }
+
+  void _iniciarConteoTiempo() {
+    _inicioSesion = DateTime.now();
+    _timerConteo?.cancel();
+
+    _timerConteo = Timer.periodic(const Duration(seconds: 1), (_) {
+      _segundosTotales++;
+    });
+
+    print("⏱️ Contador iniciado en $_inicioSesion");
   }
 
   Future<void> _confirmRemoveNode(MindNode node) async {
@@ -852,6 +868,9 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
     print('╚════════════════════════════════════════════════╝');
 
     final sesionId = _sesionRapidaId ?? widget.idSesion;
+    // 🛑 Detener contador
+    _timerConteo?.cancel();
+    print("⏱️ Tiempo total registrado: $_segundosTotales segundos");
 
     print('📋 DATOS INICIALES:');
     print('   _sesionRapidaId: $_sesionRapidaId');
@@ -887,8 +906,7 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
           sesionId,
           {
             'estado': 'finalizada',
-            'duracion_total': 0,
-            'fecha': DateTime.now().toIso8601String(),
+            'duracion_total': _segundosTotales,
           },
         );
         print('   ✅ Sesión actualizada en BD');

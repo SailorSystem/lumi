@@ -77,4 +77,22 @@ class SesionService {
       rethrow;
     }
   }
+
+    // ✅ NUEVO: Actualizar solo la fecha de la sesión (para posponer)
+  static Future<void> actualizarFechaSesion(int idSesion, DateTime nuevaFecha) async {
+    try {
+      final response = await SupabaseService.client
+          .from(table)
+          .update({'fecha': nuevaFecha.toIso8601String()})
+          .eq('id_sesion', idSesion)
+          .select();
+
+      print('⏰ Nueva fecha guardada para sesión $idSesion -> $nuevaFecha');
+      print('Respuesta Supabase: $response');
+    } catch (e) {
+      print('❌ Error al actualizar fecha de sesión: $e');
+      rethrow;
+    }
+  }
+
 }
