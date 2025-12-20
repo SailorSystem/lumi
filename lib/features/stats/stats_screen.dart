@@ -87,6 +87,7 @@ class StatsScreenState extends State<StatsScreen> with SingleTickerProviderState
     super.dispose();
   }
 
+
   Future<void> loadStats() async {
     print('🔄 Iniciando carga de estadísticas...');
 
@@ -172,29 +173,69 @@ class StatsScreenState extends State<StatsScreen> with SingleTickerProviderState
         );
 
         if (response != null) {
+          print('📥 Procesando ${response.length} sesiones de la base de datos');
+          int sesionesExitosas = 0;
+          int sesionesConError = 0;
+          
           for (var json in response) {
             try {
+              String fechaStr = json['fecha'] as String;
+              DateTime fecha;
+              
+              try {
+                fecha = DateTime.parse(fechaStr);
+              } catch (dateError) {
+                // Si falla, corregir el formato (2025-12-8 -> 2025-12-08)
+                print('⚠️ Intentando corregir fecha: "$fechaStr"');
+                
+                // Separar por espacios (fecha y hora)
+                final partes = fechaStr.split(' ');
+                final fechaParte = partes[0];
+                final horaParte = partes.length > 1 ? partes[1] : '00:00:00';
+                
+                // Separar año-mes-día
+                final fechaComponentes = fechaParte.split('-');
+                if (fechaComponentes.length >= 3) {
+                  final year = fechaComponentes[0];
+                  final month = fechaComponentes[1].padLeft(2, '0');
+                  final day = fechaComponentes[2].padLeft(2, '0');
+                  
+                  fechaStr = '$year-$month-$day $horaParte';
+                  print('✅ Fecha corregida a: "$fechaStr"');
+                  fecha = DateTime.parse(fechaStr);
+                } else {
+                  print('❌ No se pudo corregir la fecha: $fechaStr - SALTANDO SESIÓN');
+                  sesionesConError++;
+                  continue; // Saltar esta sesión
+                }
+              }
+
               final sesion = Sesion(
                 idSesion: json['id_sesion'] as int?,
                 idUsuario: json['id_usuario'] as int,
                 idMetodo: json['id_metodo'] as int?,
                 idTema: json['id_tema'] as int?,
                 nombreSesion: json['nombre_sesion'] as String? ?? 'Sesión',
-                fecha: DateTime.parse(json['fecha'] as String),
+                fecha: fecha,
                 esRapida: json['es_rapida'] as bool? ?? false,
                 duracionTotal: json['duracion_total'] as int?,
                 estado: json['estado'] as String? ?? 'programada',
               );
 
               todasSesiones.add(sesion);
+              sesionesExitosas++;
             } catch (e) {
               print('❌ Error parseando sesión: $e');
+              sesionesConError++;
+              continue;
             }
           }
+          
+          print('✅ Sesiones procesadas: $sesionesExitosas exitosas, $sesionesConError con errores');
         }
       } catch (e) {
-        print('❌ Error Supabase: $e');
-        todasSesiones = [];
+        print('❌ Error cargando sesiones de Supabase: $e');
+        // NO establecer todasSesiones = [] aquí, mantener las que ya se cargaron
       }
 
       // Calcular estadísticas básicas
@@ -203,18 +244,44 @@ class StatsScreenState extends State<StatsScreen> with SingleTickerProviderState
       totalIncompletas = todasSesiones.where((s) => s.estado == 'incompleta').length;
       totalRapidas = todasSesiones.where((s) => s.esRapida).length;
 
-      // 🆕 Calcular métricas avanzadas
+      // Calcular métricas avanzadas
       _calcularMetricas();
 
+      // ✅ IMPORTANTE: Aplicar filtros ANTES de terminar la carga
       aplicarFiltros();
-    } catch (e) {
+      
+      print('📊 Datos después de aplicar filtros:');
+      print('   Sesiones filtradas: ${sesionesFiltradas.length}');
+      print('   Sesiones totales: ${todasSesiones.length}');
+      print('   Tema más usado: $temaMasUsado');
+      
+    } catch (e, stackTrace) {
       print('❌ ERROR GENERAL cargando stats: $e');
+      print('📍 StackTrace: $stackTrace');
+      // ✅ Aún así intentar aplicar filtros con lo que tengamos
+      if (todasSesiones.isNotEmpty) {
+        print('⚠️ Intentando aplicar filtros con ${todasSesiones.length} sesiones parciales');
+        try {
+          aplicarFiltros();
+        } catch (filterError) {
+          print('❌ Error aplicando filtros: $filterError');
+          sesionesFiltradas = [];
+        }
+      } else {
+        sesionesFiltradas = [];
+      }
     } finally {
-      setState(() {
-        loading = false;
-      });
+      if (mounted) {
+        setState(() {
+          loading = false;
+          print('🎯 Estado actualizado - loading = false');
+          print('🎯 sesionesFiltradas.length = ${sesionesFiltradas.length}');
+          print('🎯 todasSesiones.length = ${todasSesiones.length}');
+        });
+      }
     }
   }
+
 
   // 🆕 Método para calcular métricas avanzadas
   void _calcularMetricas() {
@@ -243,9 +310,12 @@ class StatsScreenState extends State<StatsScreen> with SingleTickerProviderState
 
   // 🆕 Calcular rachas de días consecutivos
   void _calcularRachas() {
+    print('🔥 Iniciando cálculo de rachas');
+    
     if (todasSesiones.isEmpty) {
       racha = 0;
       mejorRacha = 0;
+      print('⚠️ No hay sesiones para calcular rachas');
       return;
     }
 
@@ -254,73 +324,126 @@ class StatsScreenState extends State<StatsScreen> with SingleTickerProviderState
         .toList()
       ..sort((a, b) => b.fecha.compareTo(a.fecha));
 
+    print('🔥 Sesiones finalizadas: ${sesionesOrdenadas.length}');
+
     if (sesionesOrdenadas.isEmpty) {
       racha = 0;
       mejorRacha = 0;
+      print('⚠️ No hay sesiones finalizadas para calcular rachas');
       return;
     }
 
     Set<String> diasUnicos = {};
     for (var sesion in sesionesOrdenadas) {
-      final dia = '${sesion.fecha.year}-${sesion.fecha.month}-${sesion.fecha.day}';
+      final dia = '${sesion.fecha.year}-${sesion.fecha.month.toString().padLeft(2, '0')}-${sesion.fecha.day.toString().padLeft(2, '0')}';
       diasUnicos.add(dia);
     }
 
     final diasOrdenados = diasUnicos.toList()..sort((a, b) => b.compareTo(a));
     
+    print('🔥 Días únicos con sesiones: ${diasOrdenados.length}');
+    print('🔥 Primeros 5 días: ${diasOrdenados.take(5).toList()}');
+    
     // Calcular racha actual
     final hoy = DateTime.now();
-    final hoyStr = '${hoy.year}-${hoy.month}-${hoy.day}';
-    final ayerStr = '${hoy.subtract(const Duration(days: 1)).year}-${hoy.subtract(const Duration(days: 1)).month}-${hoy.subtract(const Duration(days: 1)).day}';
+    final hoyStr = '${hoy.year}-${hoy.month.toString().padLeft(2, '0')}-${hoy.day.toString().padLeft(2, '0')}';
+    final ayer = hoy.subtract(const Duration(days: 1));
+    final ayerStr = '${ayer.year}-${ayer.month.toString().padLeft(2, '0')}-${ayer.day.toString().padLeft(2, '0')}';
+    
+    print('🔥 Hoy: $hoyStr');
+    print('🔥 Ayer: $ayerStr');
+    print('🔥 Día más reciente con sesión: ${diasOrdenados.first}');
     
     racha = 0;
     if (diasOrdenados.first == hoyStr || diasOrdenados.first == ayerStr) {
       DateTime diaActual = diasOrdenados.first == hoyStr 
           ? hoy 
-          : hoy.subtract(const Duration(days: 1));
+          : ayer;
+      
+      print('🔥 Iniciando conteo de racha desde: $diaActual');
       
       for (var dia in diasOrdenados) {
-        final diaEsperado = '${diaActual.year}-${diaActual.month}-${diaActual.day}';
+        final diaEsperado = '${diaActual.year}-${diaActual.month.toString().padLeft(2, '0')}-${diaActual.day.toString().padLeft(2, '0')}';
+        print('🔥 Comparando: dia=$dia con esperado=$diaEsperado');
+        
         if (dia == diaEsperado) {
           racha++;
+          print('✅ Racha continua: $racha días');
           diaActual = diaActual.subtract(const Duration(days: 1));
         } else {
+          print('❌ Racha rota en día $dia');
           break;
         }
       }
+    } else {
+      print('⚠️ La sesión más reciente no es de hoy ni ayer');
     }
+
+    print('🔥 Racha actual: $racha días');
 
     // Calcular mejor racha
     mejorRacha = 0;
     int rachaTemp = 1;
     
     for (int i = 0; i < diasOrdenados.length - 1; i++) {
-      final diaActual = DateTime.parse(diasOrdenados[i]);
-      final diaSiguiente = DateTime.parse(diasOrdenados[i + 1]);
-      
-      if (diaActual.difference(diaSiguiente).inDays == 1) {
-        rachaTemp++;
-      } else {
+      try {
+        final diaActual = DateTime.parse(diasOrdenados[i]);
+        final diaSiguiente = DateTime.parse(diasOrdenados[i + 1]);
+        
+        if (diaActual.difference(diaSiguiente).inDays == 1) {
+          rachaTemp++;
+        } else {
+          if (rachaTemp > mejorRacha) mejorRacha = rachaTemp;
+          rachaTemp = 1;
+        }
+      } catch (e) {
+        print('⚠️ Error parseando fecha en rachas: ${diasOrdenados[i]} - $e');
         if (rachaTemp > mejorRacha) mejorRacha = rachaTemp;
         rachaTemp = 1;
+        continue;
       }
     }
     if (rachaTemp > mejorRacha) mejorRacha = rachaTemp;
+    
+    print('🔥 Mejor racha: $mejorRacha días');
   }
+
 
   // 🆕 Calcular tema más usado
   void _calcularTemaMasUsado() {
     temasEstadisticas = {};
     
+    print('🎨 Iniciando cálculo de tema más usado');
+    print('🎨 Total sesiones: ${todasSesiones.length}');
+    print('🎨 Total temas disponibles: ${todosTemas.length}');
+    
+    // ✅ Solo contar sesiones que NO son rápidas y que tienen tema
+    int sesionesContadas = 0;
     for (var sesion in todasSesiones) {
-      if (sesion.idTema != null) {
+      if (sesion.idTema != null && !sesion.esRapida) {
         temasEstadisticas[sesion.idTema.toString()] = 
             (temasEstadisticas[sesion.idTema.toString()] ?? 0) + 1;
+        sesionesContadas++;
+        print('🎨 Sesión "${sesion.nombreSesion}" -> Tema ID: ${sesion.idTema}');
+      } else {
+        if (sesion.esRapida) {
+          print('⚡ Sesión "${sesion.nombreSesion}" es rápida - OMITIDA');
+        } else if (sesion.idTema == null) {
+          print('⚠️ Sesión "${sesion.nombreSesion}" NO tiene tema asignado');
+        }
       }
+    }
+
+    print('🎨 Sesiones no-rápidas contadas: $sesionesContadas');
+    print('🎨 Temas estadísticas calculadas: $temasEstadisticas');
+    print('🎨 Temas disponibles en todosTemas:');
+    for (var tema in todosTemas) {
+      print('   - ID: ${tema["id_tema"]}, Nombre: ${tema["nombre"]}, Color: ${tema["color"]}');
     }
 
     if (temasEstadisticas.isEmpty) {
       temaMasUsado = 'N/A';
+      print('⚠️ No hay temas con sesiones (sin contar rápidas)');
       return;
     }
 
@@ -328,15 +451,28 @@ class StatsScreenState extends State<StatsScreen> with SingleTickerProviderState
         .reduce((a, b) => a.value > b.value ? a : b)
         .key;
 
+    print('🏆 ID del tema más usado: $idTemaMasUsado (string)');
+
     final tema = todosTemas.firstWhere(
       (t) => t['id_tema'].toString() == idTemaMasUsado,
-      orElse: () => {'nombre': 'Desconocido'},
+      orElse: () {
+        print('❌ No se encontró el tema con ID: $idTemaMasUsado');
+        print('❌ Intentando buscar entre los IDs disponibles: ${todosTemas.map((t) => t["id_tema"]).toList()}');
+        return {'nombre': 'Desconocido', 'id_tema': null, 'color': 0xFF6200EE};
+      },
     );
 
     temaMasUsado = tema['nombre'] as String;
+    final cantidadSesiones = temasEstadisticas[idTemaMasUsado] ?? 0;
+    print('✅ Tema más usado: $temaMasUsado ($cantidadSesiones sesiones)');
   }
 
+
   void aplicarFiltros() {
+    print('🔍 Aplicando filtros: $tipoSeleccionado, $ordenSeleccionado');
+    print('🎨 Temas seleccionados: $temasSeleccionados');
+    print('📦 todasSesiones length: ${todasSesiones.length}');
+
     List<Sesion> temp;
     if (temasSeleccionados.isEmpty) {
       temp = List<Sesion>.from(todasSesiones);
@@ -363,11 +499,20 @@ class StatsScreenState extends State<StatsScreen> with SingleTickerProviderState
       sesionesFiltradas.sort((a, b) => a.fecha.compareTo(b.fecha));
     }
 
-    totalSesiones = sesionesFiltradas.length;
-    totalFinalizadas = sesionesFiltradas.where((s) => s.estado == 'finalizada').length;
-    totalIncompletas = sesionesFiltradas.where((s) => s.estado == 'incompleta').length;
-    totalRapidas = sesionesFiltradas.where((s) => s.esRapida).length;
+    if (temasSeleccionados.isNotEmpty || tipoSeleccionado != 'Todas') {
+      totalSesiones = sesionesFiltradas.length;
+      totalFinalizadas = sesionesFiltradas.where((s) => s.estado == 'finalizada').length;
+      totalIncompletas = sesionesFiltradas.where((s) => s.estado == 'incompleta').length;
+      totalRapidas = sesionesFiltradas.where((s) => s.esRapida).length;
+    } else {
+      totalSesiones = todasSesiones.length;
+      totalFinalizadas = todasSesiones.where((s) => s.estado == 'finalizada').length;
+      totalIncompletas = todasSesiones.where((s) => s.estado == 'incompleta').length;
+      totalRapidas = todasSesiones.where((s) => s.esRapida).length;
+    }
 
+    print('✅ Sesiones filtradas: ${sesionesFiltradas.length}');
+    print('✅ Primera sesión: ${sesionesFiltradas.isNotEmpty ? sesionesFiltradas.first.nombreSesion : "N/A"}');
     sesionesVisibles = sesionesPorPagina;
   }
 
@@ -546,7 +691,14 @@ class StatsScreenState extends State<StatsScreen> with SingleTickerProviderState
   }
 
   List<FlSpot> obtenerDatosGrafico() {
-    if (sesionesFiltradas.isEmpty) return [];
+    print('📈 obtenerDatosGrafico llamado');
+    print('📈 sesionesFiltradas.length: ${sesionesFiltradas.length}');
+    print('📈 filtroGrafico: $filtroGrafico');
+    
+    if (sesionesFiltradas.isEmpty) {
+      print('⚠️ No hay sesiones filtradas para el gráfico');
+      return [];
+    }
     
     final ahora = DateTime.now();
     DateTime fechaInicio;
@@ -563,7 +715,12 @@ class StatsScreenState extends State<StatsScreen> with SingleTickerProviderState
         .where((s) => s.fecha.isAfter(fechaInicio))
         .toList();
     
-    if (sesionesPorFecha.isEmpty) return [];
+    print('📈 Sesiones después de filtrar por fecha: ${sesionesPorFecha.length}');
+    
+    if (sesionesPorFecha.isEmpty) {
+      print('⚠️ No hay sesiones en el rango de fechas');
+      return [];
+    }
     
     Map<String, int> sesionesPorDia = {};
     
@@ -571,6 +728,8 @@ class StatsScreenState extends State<StatsScreen> with SingleTickerProviderState
       String key = '${sesion.fecha.year}-${sesion.fecha.month.toString().padLeft(2, '0')}-${sesion.fecha.day.toString().padLeft(2, '0')}';
       sesionesPorDia[key] = (sesionesPorDia[key] ?? 0) + 1;
     }
+    
+    print('📈 Sesiones por día: ${sesionesPorDia.length} días con datos');
     
     var sortedKeys = sesionesPorDia.keys.toList()..sort();
     
@@ -593,6 +752,8 @@ class StatsScreenState extends State<StatsScreen> with SingleTickerProviderState
     for (int i = 0; i < keysAMostrar.length; i++) {
       spots.add(FlSpot(i.toDouble(), sesionesPorDia[keysAMostrar[i]]!.toDouble()));
     }
+    
+    print('📈 Spots generados: ${spots.length}');
     
     return spots;
   }
@@ -1073,9 +1234,14 @@ class StatsScreenState extends State<StatsScreen> with SingleTickerProviderState
 
   // 🆕 Card de tema más usado
   Widget _buildTemaMasUsadoCard(Color cardColor, Color textColor, Color primary) {
+    // ✅ Si no hay tema favorito, no mostrar el card
+    if (temaMasUsado == 'N/A' || temasEstadisticas.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    
     final tema = todosTemas.firstWhere(
       (t) => t['nombre'] == temaMasUsado,
-      orElse: () => {'color': primary.value},
+      orElse: () => {'color': primary.value, 'id_tema': null},
     );
     
     final temaColor = Color(tema['color'] as int);
@@ -1158,6 +1324,7 @@ class StatsScreenState extends State<StatsScreen> with SingleTickerProviderState
       ),
     );
   }
+
 
   // 🆕 Card de distribución por estados (gráfico de torta)
   Widget _buildDistribucionEstadosCard(Color cardColor, Color textColor, Color primary) {
@@ -1576,6 +1743,294 @@ class StatsScreenState extends State<StatsScreen> with SingleTickerProviderState
     );
   }
 
+  // 🆕 Mostrar modal con detalles de la sesión
+  Future<void> _mostrarDetallesSesion(Sesion sesion, Color cardColor, Color textColor, Color primary) async {
+    // Buscar el nombre del tema
+    String nombreTema = 'Sin tema';
+    Color colorTema = primary;
+    
+    if (sesion.idTema != null) {
+      final tema = todosTemas.firstWhere(
+        (t) => t['id_tema'] == sesion.idTema,
+        orElse: () => {'nombre': 'Tema desconocido', 'color': primary.value},
+      );
+      nombreTema = tema['nombre'] as String;
+      final colorValue = tema['color'] is int ? tema['color'] : int.tryParse(tema['color']?.toString() ?? '');
+      if (colorValue != null) {
+        colorTema = Color(colorValue);
+      }
+    }
+
+    // Determinar color y texto del estado
+    Color estadoColor;
+    String estadoTexto;
+    IconData estadoIcon;
+    
+    if (sesion.estado == 'finalizada') {
+      estadoColor = Colors.green;
+      estadoTexto = 'Finalizada';
+      estadoIcon = Icons.check_circle;
+    } else if (sesion.estado == 'incompleta') {
+      estadoColor = Colors.orange;
+      estadoTexto = 'Incompleta';
+      estadoIcon = Icons.warning;
+    } else {
+      estadoColor = Colors.blue;
+      estadoTexto = 'Programada';
+      estadoIcon = Icons.schedule;
+    }
+
+    // Formatear fecha y hora
+    final fecha = '${sesion.fecha.day.toString().padLeft(2, '0')}/${sesion.fecha.month.toString().padLeft(2, '0')}/${sesion.fecha.year}';
+    final hora = '${sesion.fecha.hour.toString().padLeft(2, '0')}:${sesion.fecha.minute.toString().padLeft(2, '0')}';
+    
+    // Formatear duración
+    String duracionTexto = 'N/A';
+    if (sesion.duracionTotal != null && sesion.duracionTotal! > 0) {
+      final minutos = sesion.duracionTotal! ~/ 60;
+      final segundos = sesion.duracionTotal! % 60;
+      if (minutos > 0) {
+        duracionTexto = '$minutos min $segundos seg';
+      } else {
+        duracionTexto = '$segundos seg';
+      }
+    }
+
+    await showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) {
+        return Container(
+          decoration: BoxDecoration(
+            color: cardColor,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: const EdgeInsets.all(24),
+          child: SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Header con icono y título
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: sesion.esRapida 
+                            ? Colors.blue.withOpacity(0.2) 
+                            : primary.withOpacity(0.2),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        sesion.esRapida ? Icons.flash_on : Icons.event,
+                        color: sesion.esRapida ? Colors.blue : primary,
+                        size: 28,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            sesion.nombreSesion,
+                            style: TextStyle(
+                              color: textColor,
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: estadoColor.withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(estadoIcon, size: 14, color: estadoColor),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      estadoTexto,
+                                      style: TextStyle(
+                                        color: estadoColor,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              if (sesion.esRapida) ...[
+                                const SizedBox(width: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: Colors.blue.withOpacity(0.2),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: const [
+                                      Icon(Icons.flash_on, size: 14, color: Colors.blue),
+                                      SizedBox(width: 4),
+                                      Text(
+                                        'Rápida',
+                                        style: TextStyle(
+                                          color: Colors.blue,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                
+                const SizedBox(height: 24),
+                
+                // Información detallada
+                _detalleItem(
+                  icon: Icons.palette,
+                  label: 'Tema',
+                  value: nombreTema,
+                  color: colorTema,
+                  textColor: textColor,
+                ),
+                
+                const SizedBox(height: 16),
+                
+                _detalleItem(
+                  icon: Icons.calendar_today,
+                  label: 'Fecha',
+                  value: fecha,
+                  color: primary,
+                  textColor: textColor,
+                ),
+                
+                const SizedBox(height: 16),
+                
+                _detalleItem(
+                  icon: Icons.access_time,
+                  label: 'Hora',
+                  value: hora,
+                  color: primary,
+                  textColor: textColor,
+                ),
+                
+                const SizedBox(height: 16),
+                
+                _detalleItem(
+                  icon: Icons.timer,
+                  label: 'Duración',
+                  value: duracionTexto,
+                  color: primary,
+                  textColor: textColor,
+                ),
+                
+                if (sesion.idMetodo != null) ...[
+                  const SizedBox(height: 16),
+                  _detalleItem(
+                    icon: Icons.psychology,
+                    label: 'Método',
+                    value: 'Método #${sesion.idMetodo}',
+                    color: primary,
+                    textColor: textColor,
+                  ),
+                ],
+                
+                const SizedBox(height: 24),
+                
+                // Botón de cerrar
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: primary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: const Text(
+                      'Cerrar',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 15,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // Widget helper para items de detalle
+  Widget _detalleItem({
+    required IconData icon,
+    required String label,
+    required String value,
+    required Color color,
+    required Color textColor,
+  }) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(icon, color: color, size: 22),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  color: textColor.withOpacity(0.6),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                value,
+                style: TextStyle(
+                  color: textColor,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildSesionItem(Sesion sesion, Color textColor, Color primary) {
     final fecha = '${sesion.fecha.day.toString().padLeft(2, '0')}/${sesion.fecha.month.toString().padLeft(2, '0')}/${sesion.fecha.year}';
     final hora = '${sesion.fecha.hour.toString().padLeft(2, '0')}:${sesion.fecha.minute.toString().padLeft(2, '0')}';
@@ -1594,90 +2049,103 @@ class StatsScreenState extends State<StatsScreen> with SingleTickerProviderState
       estadoTexto = 'Programada';
     }
     
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: primary.withOpacity(0.05),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: primary.withOpacity(0.2)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: sesion.esRapida ? Colors.blue.withOpacity(0.2) : primary.withOpacity(0.2),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  sesion.esRapida ? Icons.flash_on : Icons.event,
-                  color: sesion.esRapida ? Colors.blue : primary,
-                  size: 20,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  sesion.nombreSesion,
-                  style: TextStyle(
-                    color: textColor,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 15,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: estadoColor.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  estadoTexto,
-                  style: TextStyle(
-                    color: estadoColor,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Padding(
-            padding: const EdgeInsets.only(left: 44),
-            child: Row(
+    return InkWell(
+      onTap: () {
+        // ✅ Al hacer clic, mostrar modal con detalles
+        final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
+        _mostrarDetallesSesion(
+          sesion,
+          themeProvider.cardColor,
+          themeProvider.textColor,
+          themeProvider.primaryColor,
+        );
+      },
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: primary.withOpacity(0.05),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: primary.withOpacity(0.2)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
               children: [
-                Icon(Icons.calendar_today, size: 13, color: textColor.withOpacity(0.6)),
-                const SizedBox(width: 4),
-                Text(
-                  fecha,
-                  style: TextStyle(
-                    color: textColor.withOpacity(0.7),
-                    fontSize: 12,
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: sesion.esRapida ? Colors.blue.withOpacity(0.2) : primary.withOpacity(0.2),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    sesion.esRapida ? Icons.flash_on : Icons.event,
+                    color: sesion.esRapida ? Colors.blue : primary,
+                    size: 20,
                   ),
                 ),
                 const SizedBox(width: 12),
-                Icon(Icons.access_time, size: 13, color: textColor.withOpacity(0.6)),
-                const SizedBox(width: 4),
-                Text(
-                  hora,
-                  style: TextStyle(
-                    color: textColor.withOpacity(0.7),
-                    fontSize: 12,
+                Expanded(
+                  child: Text(
+                    sesion.nombreSesion,
+                    style: TextStyle(
+                      color: textColor,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 15,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: estadoColor.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    estadoTexto,
+                    style: TextStyle(
+                      color: estadoColor,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
               ],
             ),
-          ),
-        ],
+            const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsets.only(left: 44),
+              child: Row(
+                children: [
+                  Icon(Icons.calendar_today, size: 13, color: textColor.withOpacity(0.6)),
+                  const SizedBox(width: 4),
+                  Text(
+                    fecha,
+                    style: TextStyle(
+                      color: textColor.withOpacity(0.7),
+                      fontSize: 12,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Icon(Icons.access_time, size: 13, color: textColor.withOpacity(0.6)),
+                  const SizedBox(width: 4),
+                  Text(
+                    hora,
+                    style: TextStyle(
+                      color: textColor.withOpacity(0.7),
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
