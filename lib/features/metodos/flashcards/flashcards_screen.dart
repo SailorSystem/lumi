@@ -65,6 +65,170 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
     _originalDeck = List.from(_flashcards);
   }
 
+
+  Future<void> _mostrarDialogoGuardarConNombre() async {
+    if (_flashcards.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("No hay tarjetas para exportar")),
+      );
+      return;
+    }
+
+    final tp = Provider.of<ThemeProvider>(context, listen: false);
+    final nombreController = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+
+    // Nombre sugerido
+    final now = DateTime.now();
+    final sugerencia = "flashcards_${now.day}_${now.month}_${now.year}";
+    nombreController.text = sugerencia;
+
+    final nombre = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return AlertDialog(
+          backgroundColor: tp.cardColor,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: Row(
+            children: [
+              Icon(Icons.save_alt, color: tp.primaryColor),
+              const SizedBox(width: 12),
+              Text(
+                'Guardar Flashcards',
+                style: TextStyle(
+                  color: tp.primaryColor,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 18,
+                ),
+              ),
+            ],
+          ),
+          content: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Ingresa el nombre del archivo:',
+                  style: TextStyle(
+                    color: tp.primaryColor.withOpacity(0.8),
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: nombreController,
+                  autofocus: true,
+                  style: TextStyle(color: tp.primaryColor),
+                  decoration: InputDecoration(
+                    hintText: 'Ej: flashcards_matematicas',
+                    hintStyle: TextStyle(color: tp.primaryColor.withOpacity(0.4)),
+                    suffixText: '.json',
+                    suffixStyle: TextStyle(
+                      color: tp.primaryColor.withOpacity(0.6),
+                      fontWeight: FontWeight.w500,
+                    ),
+                    filled: true,
+                    fillColor: tp.isDarkMode
+                        ? Colors.grey[800]
+                        : Colors.grey[100],
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: tp.primaryColor, width: 2),
+                    ),
+                    errorBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: Colors.redAccent, width: 2),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 14,
+                    ),
+                  ),
+                  validator: (value) {
+                    final texto = (value ?? '').trim();
+                    if (texto.isEmpty) {
+                      return 'El nombre no puede estar vacío';
+                    }
+                    if (texto.contains(RegExp(r'[<>:"/\\|?*]'))) {
+                      return 'Caracteres no permitidos: < > : " / \\ | ? *';
+                    }
+                    if (texto.length > 50) {
+                      return 'Máximo 50 caracteres';
+                    }
+                    return null;
+                  },
+                  onFieldSubmitted: (val) {
+                    if (formKey.currentState?.validate() ?? false) {
+                      Navigator.pop(ctx, nombreController.text.trim());
+                    }
+                  },
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '💡 Seleccione una carpeta para guardar el archivo',
+                  style: TextStyle(
+                    color: tp.primaryColor.withOpacity(0.6),
+                    fontSize: 12,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text(
+                'Cancelar',
+                style: TextStyle(
+                  color: tp.primaryColor.withOpacity(0.7),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                if (formKey.currentState?.validate() ?? false) {
+                  Navigator.pop(ctx, nombreController.text.trim());
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: tp.primaryColor,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 12,
+                ),
+              ),
+              child: const Text(
+                'Guardar',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    // Si el usuario confirmó, guardar con ese nombre
+    if (nombre != null && nombre.isNotEmpty) {
+      _exportFlashcardsWithName(nombre);
+    }
+  }
+
+
   // -------------------- EXPORTAR / IMPORTAR JSON --------------------
 
   void _openSaveLoadMenu() {
@@ -82,7 +246,6 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // ---------- TÍTULO ----------
               Text(
                 "Tarjetas de estudio",
                 style: TextStyle(
@@ -91,10 +254,7 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
                   color: tp.primaryColor,
                 ),
               ),
-
               const SizedBox(height: 6),
-
-              // ---------- DESCRIPCIÓN ÚNICA ----------
               Text(
                 "Guarda tus tarjetas para usarlas más tarde o cárgalas desde un archivo.",
                 style: TextStyle(
@@ -102,19 +262,15 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
                   color: tp.primaryColor.withOpacity(0.75),
                 ),
               ),
-
               const SizedBox(height: 20),
 
-              // ---------- GUARDAR ----------
+              // GUARDAR - ahora llama a la nueva función
               ElevatedButton.icon(
                 onPressed: () {
                   Navigator.pop(context);
-                  _exportFlashcardsWithName("");
+                  _mostrarDialogoGuardarConNombre(); // 👈 CAMBIO AQUÍ
                 },
-                icon: Icon(
-                  Icons.download_rounded,
-                  color: tp.primaryColor,
-                ),
+                icon: Icon(Icons.download_rounded, color: tp.primaryColor),
                 label: Text(
                   "Guardar tarjetas",
                   style: TextStyle(
@@ -131,19 +287,15 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
                   ),
                 ),
               ),
-
               const SizedBox(height: 12),
 
-              // ---------- CARGAR ----------
+              // CARGAR
               ElevatedButton.icon(
                 onPressed: () {
                   Navigator.pop(context);
                   _importFlashcards();
                 },
-                icon: Icon(
-                  Icons.folder_open_rounded,
-                  color: tp.primaryColor,
-                ),
+                icon: Icon(Icons.folder_open_rounded, color: tp.primaryColor),
                 label: Text(
                   "Cargar tarjetas",
                   style: TextStyle(
@@ -160,10 +312,8 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
                   ),
                 ),
               ),
-
               const SizedBox(height: 14),
 
-              // ---------- INFO SUTIL ----------
               Row(
                 children: [
                   Icon(
@@ -183,10 +333,8 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
                   ),
                 ],
               ),
-
               const SizedBox(height: 16),
 
-              // ---------- CANCELAR ----------
               Align(
                 alignment: Alignment.centerRight,
                 child: TextButton(
@@ -254,40 +402,6 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> {
         SnackBar(content: Text("Error al exportar: $e")),
       );
     }
-  }
-
-  void _askFileNameAndExport() {
-    final controller = TextEditingController();
-
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-        ),
-        title: Text("Nombre del archivo"),
-        content: TextField(
-          controller: controller,
-          decoration: InputDecoration(
-            hintText: "Ejemplo: mis_tarjetas",
-            border: OutlineInputBorder(),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text("Cancelar"),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _exportFlashcardsWithName(controller.text.trim());
-            },
-            child: Text("Guardar"),
-          ),
-        ],
-      ),
-    );
   }
 
   void _exportFlashcards() async {

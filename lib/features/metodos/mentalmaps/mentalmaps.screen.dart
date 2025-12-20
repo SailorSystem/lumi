@@ -69,18 +69,22 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
   DateTime? _inicioSesion; 
   Timer? _timerConteo;
   int _segundosTotales = 0; 
+  static const int _maxNodes = 50; // Límite máximo de nodos
+  static const int _maxDepthNodes = 4; // Límite de profundidad vertical
+  String? _modoEdicion; // 'agregar', 'eliminar', 'editar', null
+  MindNode? _nodoSeleccionado;
 
   final TransformationController _zoomController = TransformationController();
   double _currentScale = 1.0;
 
   void _zoomBy(double factor) {
-    final matrix = _zoomController.value.clone();
-    final newScale = (_currentScale * factor).clamp(0.5, 2.5);
-
-    matrix.scale(newScale / _currentScale);
-    _currentScale = newScale;
-
-    _zoomController.value = matrix;
+    setState(() {
+      final newScale = (_currentScale * factor).clamp(0.5, 2.5);
+      final scaleFactor = newScale / _currentScale;
+      
+      _currentScale = newScale;
+      _zoomController.value = Matrix4.identity()..scale(_currentScale);
+    });
   }
 
   Map<String, dynamic> _mindNodeToMap(MindNode node) {
@@ -291,7 +295,7 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
     }
   }
 
-  /// Importar mapa (JSON) desde archivo elegido por el usuario
+    /// Importar mapa (JSON) desde archivo elegido por el usuario
   Future<void> _importMapJson() async {
     try {
       final result = await FilePicker.platform.pickFiles(
@@ -314,14 +318,25 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
         if (!ok) return;
       }
 
+      // Función recursiva para contar todos los nodos
+      int contarNodos(MindNode node) {
+        int count = 1; // Contar el nodo actual
+        for (final child in node.children) {
+          count += contarNodos(child); // Sumar hijos recursivamente
+        }
+        return count;
+      }
+
+      final totalNodos = contarNodos(newRoot);
+
       setState(() {
         _rootNode = newRoot;
-        _nodesCreated = 1;
+        _nodesCreated = totalNodos; // ✅ Ahora cuenta todos los nodos
       });
       _updateCanvasSize();
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Mapa importado correctamente')),
+        SnackBar(content: Text('Mapa importado: $totalNodos nodos cargados')),
       );
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -571,6 +586,18 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
       _canvasSize = Size(finalWidth, finalHeight);
     });
   }
+
+  int _calcularProfundidad(MindNode nodo, MindNode objetivo, int profundidadActual) {
+    if (nodo.id == objetivo.id) return profundidadActual;
+    
+    for (final hijo in nodo.children) {
+      final resultado = _calcularProfundidad(hijo, objetivo, profundidadActual + 1);
+      if (resultado != -1) return resultado;
+    }
+    
+    return -1; // No encontrado
+  }
+
 
   // (opcional) Render "completo" offstage — se mantiene por si lo quieres aparte
   Future<ui.Image?> _renderFullMapImage() async {
@@ -1159,10 +1186,11 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
   Widget _graphicalNode(MindNode node, {int level = 0, double minWidth = 120}) {
     final tp = Provider.of<ThemeProvider>(context, listen: false);
     final gradColors = nodeGradient(context, level);
+    final esSeleccionado = _nodoSeleccionado?.id == node.id;
 
     return RepaintBoundary(
       child: GestureDetector(
-        onDoubleTap: () => _addChildNode(node),
+        onTap: () => _handleNodeTap(node),
         child: Container(
           constraints: BoxConstraints(minWidth: minWidth, minHeight: 46),
           margin: const EdgeInsets.all(6),
@@ -1181,7 +1209,12 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
                 offset: const Offset(0, 3),
               )
             ],
-            border: Border.all(color: tp.primaryColor.withOpacity(0.14)),
+            border: Border.all(
+              color: esSeleccionado 
+                  ? Colors.blue 
+                  : tp.primaryColor.withOpacity(0.14),
+              width: esSeleccionado ? 3 : 1,
+            ),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -1207,24 +1240,309 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
                     ),
                   ),
                 ),
-              if (node != _rootNode)
-                IconButton(
-                  icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                  onPressed: () => _confirmRemoveNode(node),
-                ),
-              IconButton(
-                icon: Icon(Icons.add_circle_outline, color: tp.primaryColor, size: 20),
-                onPressed: () => _addChildNode(node),
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
-              ),
             ],
           ),
         ),
       ),
     );
+  }
+
+  void _handleNodeTap(MindNode node) {
+    if (_modoEdicion == null) return;
+
+    setState(() {
+      _nodoSeleccionado = node;
+    });
+
+    switch (_modoEdicion) {
+      case 'agregar':
+        _agregarNodoConValidacion(node);
+        break;
+      case 'eliminar':
+        if (node != _rootNode) {
+          _confirmRemoveNode(node);
+        } else {
+          _mostrarMensaje('No puedes eliminar el nodo raíz');
+        }
+        break;
+      case 'editar':
+        _editarNodo(node);
+        break;
+    }
+  }
+
+  void _agregarNodoConValidacion(MindNode parent) async {
+    // 1️⃣ Verificar límite de nodos
+    if (_nodesCreated >= _maxNodes) {
+      _mostrarDialogoLimiteNodos();
+      return;
+    }
+
+    // 2️⃣ Verificar profundidad (límite vertical)
+    final profundidadPadre = _calcularProfundidad(_rootNode!, parent, 0);
+    
+    if (profundidadPadre >= _maxDepthNodes) {
+      _mostrarDialogoLimiteProfundidad();
+      return;
+    }
+
+    MindNode? child = await _askNode(title: "Nuevo subtema o idea");
+    if (child != null) {
+      setState(() {
+        parent.children = List<MindNode>.from(parent.children)..add(child);
+        _nodesCreated++;
+        _modoEdicion = null;
+        _nodoSeleccionado = null;
+      });
+      _updateCanvasSize();
+      _mostrarMensaje('✅ Nodo agregado correctamente');
+    }
+  }
+
+  Future<void> _editarNodo(MindNode node) async {
+    final tp = Provider.of<ThemeProvider>(context, listen: false);
+    final textController = TextEditingController(text: node.text);
+    final descController = TextEditingController(text: node.description ?? '');
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: tp.backgroundColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(17)),
+        title: Row(
+          children: [
+            Icon(Icons.edit, color: tp.primaryColor),
+            const SizedBox(width: 8),
+            Text(
+              'Editar nodo',
+              style: TextStyle(color: tp.primaryColor, fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: textController,
+              decoration: InputDecoration(
+                labelText: "Nombre",
+                labelStyle: TextStyle(color: tp.primaryColor),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: descController,
+              maxLines: 3,
+              decoration: InputDecoration(
+                labelText: "Descripción (opcional)",
+                labelStyle: TextStyle(color: tp.primaryColor),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text("Cancelar", style: TextStyle(color: tp.primaryColor)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              if (textController.text.trim().isNotEmpty) {
+                Navigator.pop(context, true);
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: tp.primaryColor,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text("Guardar"),
+          ),
+        ],
+      ),
+    );
+
+    if (result == true) {
+      setState(() {
+        node.text = textController.text.trim();
+        node.description = descController.text.trim();
+        _modoEdicion = null;
+        _nodoSeleccionado = null;
+      });
+      _mostrarMensaje('✅ Nodo editado correctamente');
+    }
+  }
+
+  void _mostrarDialogoLimiteNodos() {
+    final tp = Provider.of<ThemeProvider>(context, listen: false);
+
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: tp.cardColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 28),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                '¡Límite alcanzado!',
+                style: TextStyle(
+                  color: tp.primaryColor,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Has alcanzado el límite máximo de $_maxNodes nodos.',
+              style: TextStyle(color: tp.primaryColor, fontSize: 16),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.blue.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.lightbulb_outline, color: Colors.blue),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Consejo: Para agregar más ideas, elimina nodos que ya no necesites o crea un nuevo mapa.',
+                      style: TextStyle(
+                        color: tp.primaryColor,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: tp.primaryColor,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: const Text('Entendido'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _mostrarDialogoLimiteProfundidad() {
+    final tp = Provider.of<ThemeProvider>(context, listen: false);
+
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: tp.cardColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Icon(Icons.height, color: Colors.orange, size: 28),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                '¡Límite de profundidad!',
+                style: TextStyle(
+                  color: tp.primaryColor,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Has alcanzado el límite máximo de $_maxDepthNodes niveles de profundidad.',
+              style: TextStyle(color: tp.primaryColor, fontSize: 16),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.blue.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.lightbulb_outline, color: Colors.blue),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Consejo: Los mapas mentales funcionan mejor con jerarquías simples. Intenta agregar el nuevo concepto en un nivel más alto.',
+                      style: TextStyle(
+                        color: tp.primaryColor,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: tp.primaryColor,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: const Text('Entendido'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _mostrarMensaje(String mensaje) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(mensaje),
+        duration: const Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  void _activarModoEdicion(String modo) {
+    setState(() {
+      if (_modoEdicion == modo) {
+        _modoEdicion = null;
+        _nodoSeleccionado = null;
+      } else {
+        _modoEdicion = modo;
+        _nodoSeleccionado = null;
+      }
+    });
+    // ✅ Ya NO mostramos SnackBar aquí, solo el banner
   }
 
   List<Widget> _buildMindMapChildren(MindNode node, int level) {
@@ -1276,7 +1594,6 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
 
     return Stack(
       children: [
-        // ✅ Boundary del "viewport visible"
         RepaintBoundary(
           key: _viewportRepaintKey,
           child: SizedBox.expand(
@@ -1285,7 +1602,7 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
                 transformationController: _zoomController,
                 minScale: 0.4,
                 maxScale: 3.0,
-                constrained: false, // mantiene tu canvas libre
+                constrained: false,
                 panEnabled: true,
                 scaleEnabled: true,
                 child: RepaintBoundary(
@@ -1306,29 +1623,193 @@ class _MentalMapsScreenState extends State<MentalMapsScreen> {
           ),
         ),
 
-        // ✅ UI fuera de la captura
+        // Banner de modo de edición activo
+        if (_modoEdicion != null)
+          Positioned(
+            top: 16,
+            left: 16,
+            right: 16,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: Colors.blue.withOpacity(0.9),
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.2),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    _modoEdicion == 'agregar' 
+                        ? Icons.add_circle_outline
+                        : _modoEdicion == 'eliminar'
+                            ? Icons.delete_outline
+                            : Icons.edit_outlined,
+                    color: Colors.white,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _modoEdicion == 'agregar'
+                          ? 'Modo: Agregar nodo'
+                          : _modoEdicion == 'eliminar'
+                              ? 'Modo: Eliminar nodo'
+                              : 'Modo: Editar nodo',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.white),
+                    onPressed: () {
+                      setState(() {
+                        _modoEdicion = null;
+                        _nodoSeleccionado = null;
+                      });
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+        // Botones de edición (ESQUINA INFERIOR IZQUIERDA)
+        Positioned(
+          left: 16,
+          bottom: 16,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Botón Agregar (solo icono)
+              FloatingActionButton(
+                heroTag: 'agregar',
+                mini: true,
+                backgroundColor: _modoEdicion == 'agregar' 
+                    ? Colors.green 
+                    : Colors.grey[300],
+                foregroundColor: _modoEdicion == 'agregar' 
+                    ? Colors.white 
+                    : Colors.grey[700],
+                onPressed: () => _activarModoEdicion('agregar'),
+                child: const Icon(Icons.add_circle_outline),
+              ),
+              const SizedBox(height: 8),
+              
+              // Botón Editar (solo icono)
+              FloatingActionButton(
+                heroTag: 'editar',
+                mini: true,
+                backgroundColor: _modoEdicion == 'editar' 
+                    ? Colors.blue 
+                    : Colors.grey[300],
+                foregroundColor: _modoEdicion == 'editar' 
+                    ? Colors.white 
+                    : Colors.grey[700],
+                onPressed: () => _activarModoEdicion('editar'),
+                child: const Icon(Icons.edit_outlined),
+              ),
+              const SizedBox(height: 8),
+              
+              // Botón Eliminar (solo icono)
+              FloatingActionButton(
+                heroTag: 'eliminar',
+                mini: true,
+                backgroundColor: _modoEdicion == 'eliminar' 
+                    ? Colors.red 
+                    : Colors.grey[300],
+                foregroundColor: _modoEdicion == 'eliminar' 
+                    ? Colors.white 
+                    : Colors.grey[700],
+                onPressed: () => _activarModoEdicion('eliminar'),
+                child: const Icon(Icons.delete_outline),
+              ),
+            ],
+          ),
+        ),
+
+        // Controles de zoom (LADO DERECHO)
         Positioned(
           right: 16,
           bottom: 16,
           child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
+              // Zoom In
               FloatingActionButton(
                 mini: true,
+                heroTag: 'zoomIn',
                 onPressed: () => _zoomBy(1.2),
                 child: const Icon(Icons.add),
               ),
               const SizedBox(height: 8),
+              
+              // Zoom Out
               FloatingActionButton(
                 mini: true,
-                onPressed: () => _zoomBy(0.8),
+                heroTag: 'zoomOut',
+                onPressed: () => _zoomBy(0.83),
                 child: const Icon(Icons.remove),
               ),
             ],
           ),
         ),
+
+        // Contador de nodos (CENTRO ABAJO, más pequeño)
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 16,
+          child: Center(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: tp.cardColor.withOpacity(0.85),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: tp.primaryColor.withOpacity(0.2),
+                  width: 1,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.account_tree,
+                    size: 14,
+                    color: tp.primaryColor,
+                  ),
+                  const SizedBox(width: 5),
+                  Text(
+                    '$_nodesCreated / $_maxNodes',
+                    style: TextStyle(
+                      color: tp.primaryColor,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ],
     );
   }
+
 
   @override
   Widget build(BuildContext context) {

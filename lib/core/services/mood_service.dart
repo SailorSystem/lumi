@@ -18,22 +18,30 @@ class MoodService {
   }
   
   /// Calcular y actualizar el estado de ánimo basado en sesiones
+/// Calcular y actualizar estado de ánimo
   static Future<int> calcularYActualizarEstadoAnimo(int idUsuario) async {
     try {
-      // Llamar a la función SQL que calcula el estado
       final response = await Supabase.instance.client
           .rpc('calcular_estado_animo', params: {'p_id_usuario': idUsuario});
-      
-      final nuevoEstado = response as int;
-      print('✅ Estado de ánimo calculado: $nuevoEstado');
-      
+
+      final nuevoEstado = (response as int?) ?? 2;
+
+      // Actualizar estado_animo en tabla usuarios
+      await Supabase.instance.client
+          .from('usuarios')
+          .update({'estado_animo': nuevoEstado})
+          .eq('id_usuario', idUsuario);
+
+      print('🎭 Estado de ánimo actualizado a $nuevoEstado');
+
       return nuevoEstado;
     } catch (e) {
       print('❌ Error calculando estado de ánimo: $e');
-      return 2; // Default: neutral
+      return 2;
     }
   }
-  
+
+
   /// Obtener imagen según el estado de ánimo
   static String obtenerImagenAnimo(int estado) {
     switch (estado) {

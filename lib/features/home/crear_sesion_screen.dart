@@ -530,8 +530,12 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
           },
         );
         if (picked != null) {
-          setState(() => materiaSel = picked);
-          _recalcularCanSave();              
+          setState(() {
+            materiaSel = picked;
+            // 👇 Limpiar el error del FormField
+            _formKey.currentState?.validate();
+          });
+          _recalcularCanSave();
         }
       },
       child: Container(
@@ -618,51 +622,35 @@ class _CrearNuevaSesionScreenState extends State<CrearNuevaSesionScreen> {
                     Form(
                       key: formKey,
                       autovalidateMode: AutovalidateMode.onUserInteraction,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          TextFormField(
-                            focusNode: nameFocusNode,
-                            controller: nameCtrl,
-                            style: TextStyle(color: textColor),
-                            decoration: InputDecoration(
-                              labelText: 'Nombre de la materia',
-                              labelStyle: TextStyle(color: textColor.withOpacity(0.7)),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              errorStyle: const TextStyle(color: Colors.redAccent, fontSize: 13),
-                            ),
-                            validator: (v) {
-                              final t = (v ?? '').trim();
-                              if (t.isEmpty) return 'El nombre de la materia no puede estar vacío';
-                              final repetido = _materias.any((m) {
-                                final n = (m['nombre'] as String?) ?? '';
-                                return n.toLowerCase() == t.toLowerCase();
-                              });
-                              if (repetido) return 'Ya existe una materia con ese nombre';
-                              return null;
-                            },
-                            onChanged: (_) {
-                              errorLocal = false;
-                              formKey.currentState?.validate();
-                            },
+                      child: TextFormField(
+                        focusNode: nameFocusNode,
+                        controller: nameCtrl,
+                        style: TextStyle(color: textColor),
+                        decoration: InputDecoration(
+                          labelText: 'Nombre de la materia',
+                          labelStyle: TextStyle(color: textColor.withOpacity(0.7)),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
                           ),
-                          if (errorLocal)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 6, left: 4),
-                              child: Text(
-                                '⚠ Nombre vacío o repetido',
-                                style: TextStyle(
-                                  color: Colors.redAccent,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ),
-                        ],
+                          errorStyle: const TextStyle(color: Colors.redAccent, fontSize: 13),
+                        ),
+                        validator: (v) {
+                          final t = (v ?? '').trim();
+                          if (t.isEmpty) return '⚠ Nombre vacío o repetido';
+                          final repetido = _materias.any((m) {
+                            final n = (m['nombre'] as String?) ?? '';
+                            return n.toLowerCase() == t.toLowerCase();
+                          });
+                          if (repetido) return '⚠ Nombre vacío o repetido';
+                          return null;
+                        },
+                        onChanged: (_) {
+                          errorLocal = false;
+                          formKey.currentState?.validate();
+                        },
                       ),
                     ),
+                    
                     const SizedBox(height: 20),
 
                     // -------- SELECCIÓN DE COLOR --------
